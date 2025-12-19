@@ -1,0 +1,172 @@
+# Poisson Point Process sampling on Ω = G × R ⊆ B^d_+ × B^d_+
+
+"""
+    InteractionSite{d}
+
+An interaction site sampled from the PPP on Ω = G × R.
+
+# Fields
+- `g::LatentPoint{d}`: Green coordinate (propensity to propose connections)
+- `r::LatentPoint{d}`: Red coordinate (propensity to accept connections)
+"""
+struct InteractionSite{d}
+    g::LatentPoint{d}
+    r::LatentPoint{d}
+end
+
+function Base.show(io::IO, site::InteractionSite{d}) where d
+    print(io, "InteractionSite{" * string(d) * "}(g=" * string(site.g) * ", r=" * string(site.r) * ")")
+end
+
+"""
+    estimate_max_intensity(ρ::AbstractIntensity{d}; n_samples=1000, rng=Random.default_rng()) -> Float64
+
+Estimate the supremum of intensity ρ over Ω via sampling.
+Used for thinning algorithm.
+"""
+function estimate_max_intensity(ρ::AbstractIntensity{d};
+                                n_samples::Int=1000,
+                                rng::AbstractRNG=Random.default_rng()) where d
+    max_val = 0.0
+    for _ in 1:n_samples
+        g = uniform_Bd_plus_sample(d; rng=rng)
+        r = uniform_Bd_plus_sample(d; rng=rng)
+        val = ρ(g, r)
+        max_val = max(max_val, val)
+    end
+    # Add safety margin
+    return 1.5 * max_val
+end
+
+"""
+    estimate_max_intensity(ρ::ProductIntensity{d}; n_samples=1000, rng=Random.default_rng()) -> Float64
+
+Estimate max intensity for product case more efficiently.
+"""
+function estimate_max_intensity(ρ::ProductIntensity{d};
+                                n_samples::Int=1000,
+                                rng::AbstractRNG=Random.default_rng()) where d
+    # For product intensity, max is max_G * max_R
+    max_G = 0.0
+    max_R = 0.0
+    for _ in 1:n_samples
+        g = uniform_Bd_plus_sample(d; rng=rng)
+        r = uniform_Bd_plus_sample(d; rng=rng)
+        max_G = max(max_G, ρ.ρ_G(g))
+        max_R = max(max_R, ρ.ρ_R(r))
+    end
+    return 1.5 * max_G * max_R
+end
+
+"""
+    sample_ppp(ρ::AbstractIntensity{d}; λ_max=nothing, rng=Random.default_rng()) -> Vector{InteractionSite{d}}
+
+Sample from inhomogeneous PPP on Ω = B^d_+ × B^d_+ using thinning.
+
+# Algorithm
+1. Find λ_max = sup ρ(g,r) over Ω
+2. Sample N ~ Poisson(λ_max · |Ω|) candidate points uniformly on Ω
+3. Accept each point (g,r) with probability ρ(g,r) / λ_max
+
+# Arguments
+- `ρ`: Intensity function
+- `λ_max`: Upper bound on intensity (estimated if not provided)
+- `rng`: Random number generator
+
+# Returns
+Vector of accepted interaction sites.
+"""
+function sample_ppp(ρ::AbstractIntensity{d};
+                    λ_max::Union{Nothing, Float64}=nothing,
+                    rng::AbstractRNG=Random.default_rng()) where d
+
+    # Estimate λ_max if not provided
+    if isnothing(λ_max)
+        λ_max = estimate_max_intensity(ρ; rng=rng)
+    end
+
+    # Volume of Ω = B^d_+ × B^d_+
+    vol_Bd_plus = Bd_plus_volume(d)
+    vol_Ω = vol_Bd_plus^2
+
+    # Sample number of candidates from Poisson
+    n_candidates = rand(rng, Poisson(λ_max * vol_Ω))
+
+    # Sample candidates uniformly and thin
+    accepted = InteractionSite{d}[]
+
+    for _ in 1:n_candidates
+        g = uniform_Bd_plus_sample(d; rng=rng)
+        r = uniform_Bd_plus_sample(d; rng=rng)
+
+        # Accept with probability ρ(g,r) / λ_max
+        if rand(rng) < ρ(g, r) / λ_max
+            push!(accepted, InteractionSite{d}(g, r))
+        end
+    end
+
+    return accepted
+end
+
+"""
+    sample_ppp_product(ρ::ProductIntensity{d}; rng=Random.default_rng()) -> Vector{InteractionSite{d}}
+
+Sample from product intensity more efficiently by sampling from each marginal independently.
+
+For ProductIntensity, we can sample more efficiently:
+1. Sample N ~ Poisson(c_G · c_R) total sites
+2. For each site, sample g from ρ_G (normalized) and r from ρ_R (normalized) independently
+"""
+function sample_ppp_product(ρ::ProductIntensity{d};
+                            rng::AbstractRNG=Random.default_rng()) where d
+
+    # Get total intensities
+    c_G = total_intensity(ρ.ρ_G; rng=rng)
+    c_R = total_intensity(ρ.ρ_R; rng=rng)
+
+    # Expected number of sites
+    E_N = c_G * c_R
+
+    # Sample actual number from Poisson
+    n_sites = rand(rng, Poisson(E_N))
+
+    # Sample each site
+    sites = Vector{InteractionSite{d}}(undef, n_sites)
+    for i in 1:n_sites
+        g = sample_from_mixture(ρ.ρ_G; rng=rng)
+        r = sample_from_mixture(ρ.ρ_R; rng=rng)
+        sites[i] = InteractionSite{d}(g, r)
+    end
+
+    return sites
+end
+
+"""
+    sample_ppp_temporal(ρ, t_start, t_end; dt=0.01, rng=Random.default_rng())
+
+Sample from time-varying intensity over a time interval.
+Returns list of (site, time) tuples.
+
+NOTE: This is a simple implementation that discretizes time.
+For more accurate temporal point process simulation, consider using JumpProcesses.jl.
+"""
+function sample_ppp_temporal(ρ, t_start::Real, t_end::Real;
+                             dt::Float64=0.01,
+                             rng::AbstractRNG=Random.default_rng())
+    results = Tuple{InteractionSite, Float64}[]
+
+    t = t_start
+    while t < t_end
+        # Sample from frozen intensity at time t
+        # This is an approximation - proper implementation would use thinning over space-time
+        sites = sample_ppp(ρ.ρ; λ_max=nothing, rng=rng)
+        for site in sites
+            if rand(rng) < dt  # Thin by dt to account for time slice
+                push!(results, (site, t))
+            end
+        end
+        t += dt
+    end
+
+    return results
+end
