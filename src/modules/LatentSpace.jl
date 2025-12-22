@@ -128,3 +128,147 @@ function angular_coordinates(x::AbstractVector)
     n = norm(x)
     return n > 0 ? x ./ n : zeros(length(x))
 end
+
+# =============================================================================
+# Hyperspherical Coordinates for B^d_+
+# =============================================================================
+#
+# Hyperspherical coordinates generalize polar (2D) and spherical (3D) to d dimensions.
+# A point x ∈ R^d is represented as (r, φ₁, φ₂, ..., φ_{d-1}) where:
+#   - r = ||x|| is the radius
+#   - φ₁, ..., φ_{d-1} are angles
+#
+# For B^d_+ (non-negative orthant), all angles are in [0, π/2].
+#
+# Conversion formulas:
+#   x₁ = r cos(φ₁)
+#   x₂ = r sin(φ₁) cos(φ₂)
+#   x₃ = r sin(φ₁) sin(φ₂) cos(φ₃)
+#   ...
+#   x_{d-1} = r sin(φ₁) sin(φ₂) ... sin(φ_{d-2}) cos(φ_{d-1})
+#   x_d = r sin(φ₁) sin(φ₂) ... sin(φ_{d-1})
+
+"""
+    hyperspherical_to_cartesian(r::Real, angles::AbstractVector) -> LatentPoint
+
+Convert hyperspherical coordinates (r, φ₁, ..., φ_{d-1}) to Cartesian coordinates.
+
+# Arguments
+- `r`: radius (distance from origin), must be ≥ 0
+- `angles`: vector of d-1 angles in radians
+
+# Returns
+- `LatentPoint{d}`: Cartesian coordinates as a static vector
+
+# Example
+```julia
+# 2D: polar coordinates (r=0.8, θ=π/4)
+hyperspherical_to_cartesian(0.8, [π/4])  # ≈ [0.566, 0.566]
+
+# 3D: spherical coordinates (r=1, θ=π/4, φ=π/3)
+hyperspherical_to_cartesian(1.0, [π/4, π/3])  # ≈ [0.707, 0.354, 0.612]
+
+# 4D point
+hyperspherical_to_cartesian(0.9, [π/6, π/4, π/3])
+```
+"""
+function hyperspherical_to_cartesian(r::Real, angles::AbstractVector{<:Real})
+    d = length(angles) + 1
+    x = zeros(d)
+
+    if r == 0
+        return SVector{d, Float64}(x)
+    end
+
+    # Precompute cumulative product of sines
+    sin_prod = r  # running product: r * sin(φ₁) * sin(φ₂) * ...
+
+    for i in 1:d-1
+        x[i] = sin_prod * cos(angles[i])
+        sin_prod *= sin(angles[i])
+    end
+    x[d] = sin_prod  # last coordinate is just the remaining product
+
+    return SVector{d, Float64}(x)
+end
+
+"""
+    cartesian_to_hyperspherical(x::AbstractVector) -> Tuple{Float64, Vector{Float64}}
+
+Convert Cartesian coordinates to hyperspherical coordinates (r, φ₁, ..., φ_{d-1}).
+
+# Arguments
+- `x`: Cartesian coordinates in R^d
+
+# Returns
+- `r`: radius (norm of x)
+- `angles`: vector of d-1 angles in radians
+
+# Example
+```julia
+r, angles = cartesian_to_hyperspherical([0.5, 0.5, 0.707])
+# r ≈ 1.0, angles ≈ [π/3, π/4]
+```
+"""
+function cartesian_to_hyperspherical(x::AbstractVector{<:Real})
+    d = length(x)
+    r = norm(x)
+
+    if r == 0 || d == 1
+        return r, Float64[]
+    end
+
+    angles = zeros(d - 1)
+    sin_prod = r  # running product: r * sin(φ₁) * sin(φ₂) * ...
+
+    for i in 1:d-1
+        if sin_prod > 0
+            # cos(φᵢ) = xᵢ / (r * sin(φ₁) * ... * sin(φᵢ₋₁))
+            cos_val = clamp(x[i] / sin_prod, -1.0, 1.0)
+            angles[i] = acos(cos_val)
+            sin_prod *= sin(angles[i])
+        else
+            # Degenerate case: set remaining angles to 0
+            angles[i] = 0.0
+        end
+    end
+
+    return r, angles
+end
+
+"""
+    Bd_plus_from_hyperspherical(r::Real, angles::AbstractVector) -> LatentPoint
+
+Create a point in B^d_+ from hyperspherical coordinates with validation.
+
+Enforces B^d_+ constraints:
+- r ∈ [0, 1]
+- all angles ∈ [0, π/2] (to ensure non-negative Cartesian coordinates)
+
+# Example
+```julia
+# Create a 4D point with radius 0.9 and three angles
+p = Bd_plus_from_hyperspherical(0.9, [π/6, π/4, π/3])
+```
+"""
+function Bd_plus_from_hyperspherical(r::Real, angles::AbstractVector{<:Real})
+    @assert 0 <= r <= 1 "Radius must be in [0, 1] for B^d_+, got r=" * string(r)
+    @assert all(0 .<= angles .<= π/2) "All angles must be in [0, π/2] for B^d_+, got angles=" * string(angles)
+
+    return hyperspherical_to_cartesian(r, angles)
+end
+
+"""
+    Bd_plus_to_hyperspherical(x::LatentPoint) -> Tuple{Float64, Vector{Float64}}
+
+Convert a point in B^d_+ to hyperspherical coordinates.
+Alias for `cartesian_to_hyperspherical` with B^d_+ semantics.
+
+# Returns
+- `r`: radius in [0, 1]
+- `angles`: vector of d-1 angles, all in [0, π/2]
+"""
+function Bd_plus_to_hyperspherical(x::AbstractVector{<:Real})
+    @assert in_Bd_plus(x) "Point must be in B^d_+"
+    return cartesian_to_hyperspherical(x)
+end

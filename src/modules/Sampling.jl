@@ -170,3 +170,117 @@ function sample_ppp_temporal(ρ, t_start::Real, t_end::Real;
 
     return results
 end
+
+"""
+    sample_from_grid(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Float64},
+                     grid::BdPlusGrid{d}; rng=Random.default_rng()) -> EdgeCentricSample{d}
+
+Sample edge-centric interactions from grid-discretized intensity functions.
+
+This is useful when intensity evolves via PDE and is stored as grid values
+rather than as a callable function.
+
+# Arguments
+- `ρ_G_values`: Intensity values for source (resource) distribution at each grid point
+- `ρ_R_values`: Intensity values for target (consumer) distribution at each grid point
+- `grid`: The B^d_+ grid structure
+- `rng`: Random number generator
+
+# Returns
+EdgeCentricSample containing source and target positions of realized interactions.
+
+# Algorithm
+1. Compute c_G = ∫ρ_G dx ≈ Σ ρ_G[i] * h^d (total source intensity)
+2. Compute c_R = ∫ρ_R dx ≈ Σ ρ_R[i] * h^d (total target intensity)
+3. Sample N ~ Poisson(c_G * c_R) interaction opportunities
+4. For each opportunity:
+   - Sample source position g from ρ_G (normalized)
+   - Sample target position r from ρ_R (normalized)
+   - Accept edge with probability g · r
+"""
+function sample_from_grid(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Float64},
+                          grid::BdPlusGrid{d}; rng::AbstractRNG=Random.default_rng()) where d
+    # Compute volume element
+    h_d = grid.h^d
+
+    # Compute total intensities (approximate integrals)
+    c_G = sum(ρ_G_values) * h_d
+    c_R = sum(ρ_R_values) * h_d
+
+    # Expected number of interaction opportunities
+    E_N = c_G * c_R
+
+    # Handle edge case of zero intensity
+    if E_N < 1e-10
+        return EdgeCentricSample{d}(LatentPoint{d}[], LatentPoint{d}[])
+    end
+
+    # Sample number of opportunities from Poisson
+    N = rand(rng, Poisson(E_N))
+
+    if N == 0
+        return EdgeCentricSample{d}(LatentPoint{d}[], LatentPoint{d}[])
+    end
+
+    # Normalize to get probability distributions over grid points
+    p_G = ρ_G_values ./ sum(ρ_G_values)
+    p_R = ρ_R_values ./ sum(ρ_R_values)
+
+    # Sample interactions
+    sources = LatentPoint{d}[]
+    targets = LatentPoint{d}[]
+
+    for _ in 1:N
+        # Sample source position from ρ_G
+        g_idx = sample(rng, 1:length(grid.points), Weights(p_G))
+        g = grid.points[g_idx]
+
+        # Sample target position from ρ_R
+        r_idx = sample(rng, 1:length(grid.points), Weights(p_R))
+        r = grid.points[r_idx]
+
+        # Accept with connection probability g · r
+        p_connect = connection_probability(g, r)
+        if rand(rng) < p_connect
+            push!(sources, g)
+            push!(targets, r)
+        end
+    end
+
+    return EdgeCentricSample{d}(sources, targets)
+end
+
+"""
+    initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_vals, scale) -> Vector{Float64}
+
+Initialize intensity values on a grid from a mixture distribution.
+
+Creates intensity values at each grid point by evaluating a Gaussian-like mixture:
+    ρ(x) = scale * Σ_k weights[k] * exp(-κ[k] * ||x - means[k]||² / 2)
+
+# Arguments
+- `grid`: The B^d_+ grid
+- `weights`: Mixture weights (should sum to 1)
+- `means`: Vector of mean positions for each component
+- `κ_vals`: Concentration parameters (like inverse variance)
+- `scale`: Overall scaling factor
+
+# Returns
+Vector of intensity values at each grid point.
+"""
+function initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_vals, scale) where d
+    n_components = length(weights)
+    ρ_values = zeros(length(grid.points))
+
+    for (idx, point) in enumerate(grid.points)
+        val = 0.0
+        for k in 1:n_components
+            diff = Vector(point) .- means[k]
+            dist_sq = sum(diff.^2)
+            val += weights[k] * exp(-κ_vals[k] * dist_sq / 2)
+        end
+        ρ_values[idx] = scale * val
+    end
+
+    return ρ_values
+end

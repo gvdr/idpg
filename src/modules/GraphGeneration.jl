@@ -116,17 +116,16 @@ function discretize_edge_centric(sample::EdgeCentricSample{d}, n_clusters::Int;
         return SimpleDiGraph(n_clusters), Int[], Int[]
     end
 
-    # Convert to matrices for clustering
-    source_matrix = hcat([Vector(s) for s in sample.sources]...)  # d × n_edges
-    target_matrix = hcat([Vector(t) for t in sample.targets]...)  # d × n_edges
+    # Convert to matrices for clustering (Clustering.jl expects d×n)
+    source_matrix = hcat([Vector(s) for s in sample.sources]...)
+    target_matrix = hcat([Vector(t) for t in sample.targets]...)
 
-    # Cluster sources and targets
-    # Using simple k-means assignment based on nearest centroid
-    source_centroids = init_centroids(source_matrix, n_clusters, rng)
-    target_centroids = init_centroids(target_matrix, n_clusters, rng)
+    # Use Clustering.jl's k-means
+    source_result = kmeans(source_matrix, n_clusters; maxiter=max_iter)
+    target_result = kmeans(target_matrix, n_clusters; maxiter=max_iter)
 
-    source_assignments = assign_clusters(source_matrix, source_centroids)
-    target_assignments = assign_clusters(target_matrix, target_centroids)
+    source_assignments = source_result.assignments
+    target_assignments = target_result.assignments
 
     # Build graph with edge counts
     graph = SimpleDiGraph(n_clusters)
@@ -150,35 +149,130 @@ function discretize_edge_centric(sample::EdgeCentricSample{d}, n_clusters::Int;
     return graph, source_assignments, target_assignments
 end
 
+# Using Clustering.jl for k-means and DBSCAN
+
 """
-Initialize k-means centroids by randomly selecting k points.
+    discretize_edge_centric_joint(sample::EdgeCentricSample{d};
+                                   eps=0.15, min_samples=3,
+                                   rng=Random.default_rng())
+
+Discretize an edge-centric sample using joint clustering of (g, r) pairs.
+Uses DBSCAN density clustering to automatically determine number of clusters.
+
+Each interaction is represented as a 2d-dimensional point (g, r), and interactions
+with similar (g, r) pairs are grouped together.
+
+# Arguments
+- `sample`: Edge-centric sample to discretize
+- `eps`: Maximum distance between points in the same cluster
+- `min_samples`: Minimum points to form a dense region
+
+# Returns
+- `graph::SimpleDiGraph`: Directed graph between interaction types
+- `edge_weights::Matrix{Int}`: Count of interactions between clusters
+- `assignments::Vector{Int}`: Cluster assignment for each interaction (0 = noise)
+- `n_clusters::Int`: Number of clusters found
 """
-function init_centroids(data::Matrix{Float64}, k::Int, rng::AbstractRNG)
-    n = size(data, 2)
-    indices = sample(rng, 1:n, k, replace=false)
-    return data[:, indices]
+function discretize_edge_centric_joint(sample::EdgeCentricSample{d};
+                                        eps::Float64=0.15,
+                                        min_samples::Int=3,
+                                        rng::AbstractRNG=Random.default_rng()) where d
+    n_edges = length(sample)
+
+    if n_edges == 0
+        return SimpleDiGraph(0), zeros(Int, 0, 0), Int[], 0
+    end
+
+    # Concatenate (g, r) into 2d-dimensional points
+    joint_points = Matrix{Float64}(undef, 2d, n_edges)
+    for i in 1:n_edges
+        joint_points[1:d, i] = sample.sources[i]
+        joint_points[d+1:2d, i] = sample.targets[i]
+    end
+
+    # Use Clustering.jl's DBSCAN
+    result = dbscan(joint_points, eps, min_neighbors=min_samples)
+
+    # Convert to assignments vector (0 = noise)
+    assignments = zeros(Int, n_edges)
+    for (cluster_id, cluster) in enumerate(result.clusters)
+        for idx in cluster.core_indices
+            assignments[idx] = cluster_id
+        end
+        for idx in cluster.boundary_indices
+            assignments[idx] = cluster_id
+        end
+    end
+
+    n_clusters = length(result.clusters)
+
+    if n_clusters == 0
+        # All points are noise - fall back to treating each as its own cluster
+        return SimpleDiGraph(1), ones(Int, 1, 1) * n_edges, ones(Int, n_edges), 1
+    end
+
+    # Build weighted graph
+    # Simpler: show each cluster as a node with self-weight = count
+    graph = SimpleDiGraph(n_clusters)
+    edge_weights = zeros(Int, n_clusters, n_clusters)
+
+    # Count interactions per cluster
+    for i in 1:n_edges
+        c = assignments[i]
+        if c > 0
+            edge_weights[c, c] += 1
+        end
+    end
+
+    return graph, edge_weights, assignments, n_clusters
 end
 
 """
-Assign each point to nearest centroid.
-"""
-function assign_clusters(data::Matrix{Float64}, centroids::Matrix{Float64})
-    n = size(data, 2)
-    k = size(centroids, 2)
-    assignments = zeros(Int, n)
+    discretize_with_weights(sample::EdgeCentricSample{d}, n_clusters::Int;
+                            rng=Random.default_rng())
 
-    for i in 1:n
-        min_dist = Inf
-        for j in 1:k
-            dist = sum((data[:, i] .- centroids[:, j]).^2)
-            if dist < min_dist
-                min_dist = dist
-                assignments[i] = j
+Discretize with separate source/target clustering but return edge weights.
+Uses Clustering.jl's k-means implementation.
+"""
+function discretize_with_weights(sample::EdgeCentricSample{d}, n_clusters::Int;
+                                  rng::AbstractRNG=Random.default_rng()) where d
+    n_edges = length(sample)
+
+    if n_edges == 0
+        return SimpleDiGraph(n_clusters), zeros(Int, n_clusters, n_clusters), Int[], Int[]
+    end
+
+    # Convert to matrices for clustering (Clustering.jl expects d×n)
+    source_matrix = hcat([Vector(s) for s in sample.sources]...)
+    target_matrix = hcat([Vector(t) for t in sample.targets]...)
+
+    # Use Clustering.jl's k-means
+    source_result = kmeans(source_matrix, n_clusters; maxiter=100)
+    target_result = kmeans(target_matrix, n_clusters; maxiter=100)
+
+    source_assignments = source_result.assignments
+    target_assignments = target_result.assignments
+
+    # Build weighted adjacency matrix
+    edge_weights = zeros(Int, n_clusters, n_clusters)
+
+    for i in 1:n_edges
+        s = source_assignments[i]
+        t = target_assignments[i]
+        edge_weights[s, t] += 1
+    end
+
+    # Build graph
+    graph = SimpleDiGraph(n_clusters)
+    for s in 1:n_clusters
+        for t in 1:n_clusters
+            if edge_weights[s, t] > 0
+                add_edge!(graph, s, t)
             end
         end
     end
 
-    return assignments
+    return graph, edge_weights, source_assignments, target_assignments
 end
 
 """

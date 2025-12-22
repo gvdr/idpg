@@ -114,8 +114,8 @@ if ne(graph_nc) > 0
         i, j = src(e), dst(e)
         p1, p2 = g_points[i], g_points[j]
         # Draw arrow from p1 to p2
-        arrows!(ax4, [p1[1]], [p1[2]], [p2[1] - p1[1]], [p2[2] - p1[2]],
-            color=(:purple, 0.3), linewidth=0.8, arrowsize=8)
+        arrows2d!(ax4, [p1[1]], [p1[2]], [p2[1] - p1[1]], [p2[2] - p1[2]],
+            color=(:purple, 0.3), tipwidth=6, tiplength=8)
     end
 end
 scatter!(ax4, g_points, color=:steelblue, markersize=10)
@@ -146,9 +146,9 @@ if length(sample_ec) > 0
 
     # Draw arrows from source to target positions
     for k in 1:length(sample_ec)
-        arrows!(ax6, [src_2d[k][1]], [src_2d[k][2]],
+        arrows2d!(ax6, [src_2d[k][1]], [src_2d[k][2]],
             [tgt_2d[k][1] - src_2d[k][1]], [tgt_2d[k][2] - src_2d[k][2]],
-            color=(:gray, 0.4), linewidth=0.5, arrowsize=6)
+            color=(:gray, 0.4), tipwidth=4, tiplength=6)
     end
     scatter!(ax6, src_2d, color=:forestgreen, markersize=6, marker=:circle)
     scatter!(ax6, tgt_2d, color=:firebrick, markersize=6, marker=:diamond)

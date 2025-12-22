@@ -238,6 +238,61 @@ function evolve_advection!(ρ_values::Vector{Float64}, grid::BdPlusGrid{d},
 end
 
 """
+    evolve_advection_field!(ρ_values::Vector{Float64}, grid::BdPlusGrid{d},
+                            v_field::Function, dt::Float64, n_steps::Int;
+                            boundary::Symbol=:absorbing) -> Vector{Float64}
+
+Evolve intensity via advection with a space-dependent velocity field: ∂ρ/∂t = -v(x) · ∇ρ
+
+This generalizes `evolve_advection!` to allow the velocity to vary in space.
+Useful for pursuit-evasion dynamics where velocity depends on position.
+
+# Arguments
+- `ρ_values`: Current intensity values at grid points (modified in place)
+- `grid`: B^d_+ grid
+- `v_field`: Function v_field(x::AbstractVector) -> velocity vector at point x
+- `dt`: Time step
+- `n_steps`: Number of time steps
+- `boundary`: Boundary condition
+
+# Example
+```julia
+# Velocity field pointing toward a target
+target = [0.5, 0.5]
+v_toward(x) = (target .- x) ./ max(norm(target .- x), 0.1)
+evolve_advection_field!(ρ_values, grid, v_toward, 0.01, 100)
+```
+"""
+function evolve_advection_field!(ρ_values::Vector{Float64}, grid::BdPlusGrid{d},
+                                  v_field::Function, dt::Float64, n_steps::Int;
+                                  boundary::Symbol=:absorbing) where d
+    n_points = length(grid.points)
+    ρ_new = similar(ρ_values)
+
+    for _ in 1:n_steps
+        for i in 1:n_points
+            point = grid.points[i]
+            # Compute velocity at this point
+            v = v_field(Vector(point))
+
+            # Compute -v · ∇ρ
+            advection = 0.0
+            for dim in 1:d
+                grad = gradient_component(grid, ρ_values, i, dim)
+                advection -= v[dim] * grad
+            end
+            ρ_new[i] = ρ_values[i] + dt * advection
+        end
+
+        # Enforce non-negativity
+        @. ρ_new = max(ρ_new, 0.0)
+        copyto!(ρ_values, ρ_new)
+    end
+
+    return ρ_values
+end
+
+"""
     evolve_reaction_diffusion!(ρ_values::Vector{Float64}, grid::BdPlusGrid{d},
                                D::Float64, f::Function, dt::Float64, n_steps::Int;
                                boundary::Symbol=:absorbing) -> Vector{Float64}

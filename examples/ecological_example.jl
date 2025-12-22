@@ -10,6 +10,8 @@ using Random
 using CairoMakie
 using Statistics
 using Graphs
+using GraphMakie
+using NetworkLayout
 
 rng = MersenneTwister(42)
 
@@ -18,136 +20,259 @@ println("IDPG Ecological Example: Food Web Modeling")
 println("=" ^ 60)
 
 # In this model:
-# - The "green" coordinate represents an individual's role as a RESOURCE
-#   (i.e., its propensity to be eaten, its nutritional profile)
-# - The "red" coordinate represents an individual's role as a CONSUMER
-#   (i.e., its foraging behavior, dietary preferences)
+# - g represents the "resource role" - an individual's position when being consumed
+# - r represents the "consumer role" - an individual's position when consuming
 #
 # Under the edge-centric interpretation, each sampled point (g, r) represents
 # a trophic interaction: a consumer "at r" eating a resource "at g".
+#
+# Note: In edge-centric, g and r come from DIFFERENT individuals in each interaction.
+# The same individual has both g and r positions, but we only see them in one role per edge.
 
-# We model a simple 2D ecosystem with two trophic niche axes:
-# - Axis 1: Body size / energy content
-# - Axis 2: Defensive capability / handling time
+# Define scenarios with different kernel concentrations
+# Higher concentration = more specialized niches
+# Lower concentration = more generalist niches
+# Scales are adjusted to keep E[L] roughly constant across scenarios
 
-println("\n--- Setting Up Ecological Intensity ---")
+# Common structure across scenarios
+weights_G = [0.7, 0.2, 0.1]  # Most biomass at base
+means_G = [[0.8, 0.2], [0.5, 0.5], [0.3, 0.7]]
 
-# Resource intensity (green space): where individuals are positioned as food
-# Primary producers have high nutritional value (high x1) and low defense (low x2)
-ρ_G = BdPlusMixture(
-    [0.7, 0.2, 0.1],  # Most biomass is at the base (producers)
-    [
-        [0.8, 0.2],  # Producers: high energy, low defense
-        [0.5, 0.5],  # Herbivore resources
-        [0.3, 0.7],  # Well-defended prey
-    ],
-    [15.0, 10.0, 10.0],  # Concentrations
-    100.0  # Total resource availability
-)
+weights_R = [0.3, 0.4, 0.3]  # More even consumer distribution
+means_R = [[0.7, 0.3], [0.5, 0.5], [0.4, 0.8]]
 
-# Consumer intensity (red space): where individuals are positioned as eaters
-# Consumers are positioned by their foraging preferences
-ρ_R = BdPlusMixture(
-    [0.3, 0.4, 0.3],  # More even distribution of consumers
-    [
-        [0.7, 0.3],  # Herbivores preferring high-energy resources
-        [0.5, 0.5],  # Generalist consumers
-        [0.4, 0.8],  # Specialists that can handle defended prey
-    ],
-    [10.0, 8.0, 12.0],
-    50.0  # Total consumer activity
-)
+scenarios = [
+    (
+        name = "Spread (generalist)",
+        κ_G = [5.0, 5.0, 5.0],
+        κ_R = [5.0, 5.0, 5.0],
+        scale_G = 50.0,
+        scale_R = 30.0,
+    ),
+    (
+        name = "Medium",
+        κ_G = [40.0, 35.0, 35.0],
+        κ_R = [35.0, 30.0, 40.0],
+        scale_G = 195.0,
+        scale_R = 118.0,
+    ),
+    (
+        name = "Concentrated (specialist)",
+        κ_G = [120.0, 100.0, 100.0],
+        κ_R = [100.0, 90.0, 120.0],
+        scale_G = 560.0,
+        scale_R = 320.0,
+    ),
+]
 
-ρ = ProductIntensity(ρ_G, ρ_R)
+# Create comparison figure (larger for better visibility)
+fig = Figure(size=(1800, 1800))
 
-# Compute statistics
-stats = marginal_stats(ρ; rng=rng)
+println("\n--- Comparing Scenarios ---")
 
-println("\nIntensity Statistics:")
-println("  Resource intensity (c_G): ", round(stats.c_G, digits=2))
-println("  Consumer intensity (c_R): ", round(stats.c_R, digits=2))
-println("  Expected opportunities (E[N]): ", round(stats.E_N, digits=2))
-println("  Mean resource position (μ̃_G): ", round.(stats.μ̃_G, digits=3))
-println("  Mean consumer position (μ̃_R): ", round.(stats.μ̃_R, digits=3))
-println("  Average connection probability: ", round(stats.avg_conn_prob, digits=4))
-println("  Expected trophic interactions (E[L]): ", round(stats.E_edges_edge_centric, digits=1))
+# Store data for network plotting
+scenario_data = []
 
-# Sample trophic interactions (edge-centric)
-println("\n--- Sampling Trophic Interactions ---")
+for (col, scenario) in enumerate(scenarios)
+    println("\n" * "=" ^ 50)
+    println("Scenario: ", scenario.name)
+    println("=" ^ 50)
 
-# First sample the opportunity structure
-sites = sample_ppp_product(ρ; rng=rng)
-println("Sampled ", length(sites), " potential interaction opportunities")
+    # Build intensities for this scenario (using per-scenario scales)
+    ρ_G = BdPlusMixture(weights_G, means_G, scenario.κ_G, scenario.scale_G)
+    ρ_R = BdPlusMixture(weights_R, means_R, scenario.κ_R, scenario.scale_R)
+    ρ = ProductIntensity(ρ_G, ρ_R)
 
-# Then determine which actually result in consumption (edge-centric)
-trophic_interactions = generate_edge_centric(sites; rng=rng)
-println("Realized trophic interactions: ", length(trophic_interactions))
+    # Compute statistics
+    stats = marginal_stats(ρ; rng=rng)
+    println("  Expected opportunities E[N]: ", round(stats.E_N, digits=1))
+    println("  Avg connection prob: ", round(stats.avg_conn_prob, digits=3))
+    println("  Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
 
-# Analyze the interactions
-println("\n--- Analyzing Trophic Structure ---")
+    # Sample interactions
+    sites = sample_ppp_product(ρ; rng=MersenneTwister(42 + col))
+    trophic_interactions = generate_edge_centric(sites; rng=MersenneTwister(42 + col))
+    println("  Sampled opportunities: ", length(sites))
+    println("  Realized interactions: ", length(trophic_interactions))
 
-# Discretize into "species" by clustering
-n_species = 6  # Number of species-level clusters
-graph, source_assign, target_assign = discretize_edge_centric(trophic_interactions, n_species; rng=rng)
+    # Joint clustering with DBSCAN (adaptive eps based on concentration)
+    # Higher concentration → tighter clusters → smaller eps needed
+    avg_kappa = mean(scenario.κ_G)
+    eps_val = 0.25 / sqrt(avg_kappa / 10)  # Scale eps with concentration
+    eps_val = clamp(eps_val, 0.05, 0.3)
 
-println("\nDiscretized food web:")
-println("  Species (clusters): ", n_species)
-println("  Unique trophic links: ", ne(graph))
+    _, _, joint_assign, n_joint = discretize_edge_centric_joint(
+        trophic_interactions; eps=eps_val, min_samples=3)
+    n_noise = count(==(0), joint_assign)
+    println("  Joint DBSCAN (eps=", round(eps_val, digits=3), "): ", n_joint, " clusters, ", n_noise, " noise")
 
-# Create visualization
-println("\n--- Generating Plots ---")
+    # Use DBSCAN result to guide k-means clusters, with minimum of 3
+    n_clusters = max(3, n_joint)
+    graph, edge_weights, src_assign, tgt_assign = discretize_with_weights(
+        trophic_interactions, n_clusters; rng=MersenneTwister(42 + col))
+    println("  K-means clusters: ", n_clusters, ", Links: ", ne(graph))
+    if any(edge_weights .> 0)
+        println("  Edge weight range: ", minimum(edge_weights[edge_weights .> 0]), "-", maximum(edge_weights))
+    end
 
-fig = Figure(size=(1200, 800))
+    # Statistical significance test for links
+    # H0: interactions are randomly distributed (no cluster preference)
+    # Expected: E[i,j] = n_source_i × n_target_j / N
+    # where n_source_i = count of interactions with source in cluster i
+    # Test: keep edge if observed >> expected (using binomial or ratio threshold)
 
-# Plot 1: Resource intensity
-ax1 = Axis(fig[1, 1], aspect=DataAspect(), title="Resource Distribution (ρ_G)\n'Who gets eaten'")
-plot_intensity_Bd_plus!(ax1, ρ_G; resolution=30)
-text!(ax1, Point2f(1.05, 0.0), text="Energy", fontsize=10, align=(:left, :center))
-text!(ax1, Point2f(0.0, 1.05), text="Defense", fontsize=10, align=(:center, :bottom))
+    N = length(trophic_interactions)
+    n_source = [count(==(k), src_assign) for k in 1:n_clusters]
+    n_target = [count(==(k), tgt_assign) for k in 1:n_clusters]
 
-# Plot 2: Consumer intensity
-ax2 = Axis(fig[1, 2], aspect=DataAspect(), title="Consumer Distribution (ρ_R)\n'Who does the eating'")
-plot_intensity_Bd_plus!(ax2, ρ_R; resolution=30)
-text!(ax2, Point2f(1.05, 0.0), text="Energy pref.", fontsize=10, align=(:left, :center))
-text!(ax2, Point2f(0.0, 1.05), text="Defense handling", fontsize=10, align=(:center, :bottom))
+    expected_weights = zeros(n_clusters, n_clusters)
+    significance = zeros(n_clusters, n_clusters)  # O/E ratio
 
-# Plot 3: Sampled resources (what gets eaten)
-ax3 = Axis(fig[2, 1], aspect=DataAspect(), title="Resources Consumed\n(Source positions of interactions)")
-draw_Bd_plus_boundary!(ax3)
-if !isempty(trophic_interactions.sources)
-    source_2d = [Bd_plus_to_2d(s) for s in trophic_interactions.sources]
-    scatter!(ax3, source_2d, color=:green, markersize=5, alpha=0.5)
-end
+    for i in 1:n_clusters
+        for j in 1:n_clusters
+            expected_weights[i, j] = n_source[i] * n_target[j] / N
+            if expected_weights[i, j] > 0
+                significance[i, j] = edge_weights[i, j] / expected_weights[i, j]
+            end
+        end
+    end
 
-# Plot 4: Sampled consumers (who does the eating)
-ax4 = Axis(fig[2, 2], aspect=DataAspect(), title="Active Consumers\n(Target positions of interactions)")
-draw_Bd_plus_boundary!(ax4)
-if !isempty(trophic_interactions.targets)
-    target_2d = [Bd_plus_to_2d(t) for t in trophic_interactions.targets]
-    scatter!(ax4, target_2d, color=:red, markersize=5, alpha=0.5)
+    # Count non-self-loop edges
+    n_links = 0
+    for i in 1:n_clusters
+        for j in 1:n_clusters
+            if i != j && edge_weights[i, j] > 0
+                n_links += 1
+            end
+        end
+    end
+    println("  Links (excl. self-loops): ", n_links)
+
+    push!(scenario_data, (ρ_G=ρ_G, ρ_R=ρ_R, interactions=trophic_interactions,
+                          graph=graph, edge_weights=edge_weights, stats=stats,
+                          n_clusters=n_clusters, n_links=n_links,
+                          src_assign=src_assign, tgt_assign=tgt_assign))
+
+    # Row 1: Resource intensity
+    ax1 = Axis(fig[1, col], aspect=DataAspect(),
+        title = scenario.name * "\nρ_G (resource intensity)")
+    plot_intensity_Bd_plus!(ax1, ρ_G; resolution=40)
+
+    # Row 2: Consumer intensity
+    ax2 = Axis(fig[2, col], aspect=DataAspect(),
+        title = "ρ_R (consumer intensity)")
+    plot_intensity_Bd_plus!(ax2, ρ_R; resolution=40)
+
+    # Row 3: Realized interactions - resource role (g) colored by source cluster
+    ax3 = Axis(fig[3, col], aspect=DataAspect(),
+        title = "g positions (colored by cluster)")
+    draw_Bd_plus_boundary!(ax3)
+    if !isempty(trophic_interactions.sources)
+        source_2d = [Bd_plus_to_2d(s) for s in trophic_interactions.sources]
+        # Color by source cluster assignment
+        colors = [Makie.wong_colors()[mod1(c, 7)] for c in src_assign]
+        scatter!(ax3, source_2d, color=colors, markersize=7, alpha=0.7)
+    end
+
+    # Row 4: Realized interactions - consumer role (r) colored by target cluster
+    ax4 = Axis(fig[4, col], aspect=DataAspect(),
+        title = "r positions (colored by cluster)")
+    draw_Bd_plus_boundary!(ax4)
+    if !isempty(trophic_interactions.targets)
+        target_2d = [Bd_plus_to_2d(t) for t in trophic_interactions.targets]
+        # Color by target cluster assignment
+        colors = [Makie.wong_colors()[mod1(c, 7)] for c in tgt_assign]
+        scatter!(ax4, target_2d, color=colors, markersize=7, alpha=0.7)
+    end
+
+    # Row 5: Aggregated food web (excluding self-loops)
+    ax5 = Axis(fig[5, col], aspect=DataAspect(),
+        title = "Food web (" * string(n_links) * " links)")
+    hidedecorations!(ax5)
+    hidespines!(ax5)
+    limits!(ax5, -1.5, 1.5, -1.5, 1.5)
+
+    if n_clusters > 0 && n_links > 0
+        # Build graph excluding self-loops
+        food_web = SimpleDiGraph(n_clusters)
+        edge_widths = Float64[]
+        arrow_sizes = Float64[]
+        max_weight = maximum(edge_weights)
+
+        for i in 1:n_clusters
+            for j in 1:n_clusters
+                if i != j && edge_weights[i, j] > 0
+                    add_edge!(food_web, j, i)  # Arrow: consumer j → resource i (who eats whom)
+                    # Edge width proportional to interaction count
+                    w_normalized = edge_weights[i, j] / max_weight
+                    width = 0.1 + 8.0 * w_normalized^0.6  # thinner base, steeper scaling
+                    push!(edge_widths, width)
+                    push!(arrow_sizes, 3.0 + 22.0 * w_normalized^0.6)  # scale arrows with edges
+                end
+            end
+        end
+
+        # Node colors by cluster index
+        node_colors = [Makie.wong_colors()[mod1(i, 7)] for i in 1:n_clusters]
+
+        graphplot!(ax5, food_web,
+            layout=Shell(),
+            node_size=30,
+            node_color=node_colors,
+            nlabels=string.(1:n_clusters),
+            nlabels_align=(:center, :center),
+            nlabels_color=:white,
+            nlabels_fontsize=12,
+            edge_color=(:black, 0.8),
+            edge_width=edge_widths,
+            arrow_size=arrow_sizes,
+            arrow_show=true)
+    end
 end
 
 save("output/applications/ecological_foodweb.png", fig)
-println("Saved ecological_foodweb.png")
+println("\nSaved ecological_foodweb.png")
 
-# Monte Carlo validation
+# --- Monte Carlo comparison across scenarios ---
 println("\n" * "=" ^ 60)
-println("Monte Carlo Validation")
+println("Monte Carlo Comparison")
 println("=" ^ 60)
 
-n_trials = 200
-L_samples = Int[]
+n_trials = 100
 
-for _ in 1:n_trials
-    sites_trial = sample_ppp_product(ρ; rng=rng)
-    interactions_trial = generate_edge_centric(sites_trial; rng=rng)
-    push!(L_samples, length(interactions_trial))
+fig2 = Figure(size=(1400, 450))
+
+for (idx, scenario) in enumerate(scenarios)
+    # Use per-scenario scales
+    ρ_G = BdPlusMixture(weights_G, means_G, scenario.κ_G, scenario.scale_G)
+    ρ_R = BdPlusMixture(weights_R, means_R, scenario.κ_R, scenario.scale_R)
+    ρ = ProductIntensity(ρ_G, ρ_R)
+    stats = marginal_stats(ρ; rng=rng)
+
+    L_samples = Int[]
+    for t in 1:n_trials
+        sites_trial = sample_ppp_product(ρ; rng=MersenneTwister(1000*idx + t))
+        interactions_trial = generate_edge_centric(sites_trial; rng=MersenneTwister(1000*idx + t))
+        push!(L_samples, length(interactions_trial))
+    end
+
+    println("\n", scenario.name, ":")
+    println("  E[L] theory:    ", round(stats.E_edges_edge_centric, digits=1))
+    println("  E[L] empirical: ", round(mean(L_samples), digits=1), " ± ", round(std(L_samples), digits=1))
+
+    ax = Axis(fig2[1, idx], xlabel="Number of Interactions (L)", ylabel="Count",
+        title=scenario.name)
+    hist!(ax, L_samples, bins=20, color=[:steelblue, :forestgreen, :purple][idx])
+    vlines!(ax, [stats.E_edges_edge_centric], color=:red, linestyle=:dash, linewidth=2, label="E[L]")
+    if idx == 1
+        axislegend(ax, position=:rt)
+    end
 end
 
-println("\nExpected trophic interactions E[L]:")
-println("  Theory:    ", round(stats.E_edges_edge_centric, digits=1))
-println("  Empirical: ", round(mean(L_samples), digits=1), " ± ", round(std(L_samples)/sqrt(n_trials), digits=1))
+save("output/applications/ecological_mc_comparison.png", fig2)
+println("\nSaved ecological_mc_comparison.png")
 
+# --- Ecological interpretation ---
 println("\n" * "=" ^ 60)
 println("Ecological Interpretation:")
 println("=" ^ 60)
@@ -158,16 +283,20 @@ In this food web model:
    for trophic interactions - which resource-consumer pairs have the chance to meet.
 
 2. The connection probability g · r represents whether an encounter results in
-   predation, based on the alignment of resource availability and consumer preference.
+   predation, based on the alignment of resource and consumer positions.
 
 3. The edge-centric interpretation is natural because each predation event involves
    ephemeral individuals - the consumed individual ceases to exist after the interaction.
 
-4. Species-level food webs (as typically studied) are statistical summaries:
-   they cluster individual interactions into species nodes and count link frequencies.
+4. Kernel concentration (κ) controls niche specialization:
+   - Low κ (spread): generalist niches, individuals sample broadly in trait space
+   - High κ (concentrated): specialist niches, tight clustering in trait space
 
-5. Evolutionary dynamics (e.g., adaptation, speciation) can be modeled as PDE
-   evolution of the intensities ρ_G and ρ_R on B^d_+.
+5. Same cluster means across scenarios allows direct comparison of how
+   concentration affects the realized interaction patterns.
+
+6. Species-level food webs (as typically studied) are statistical summaries:
+   they cluster individual interactions into species nodes and count link frequencies.
 """)
 
 println("\nDone!")
