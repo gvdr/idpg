@@ -247,6 +247,213 @@ function marginal_stats(ρ::ProductIntensity{d};
 end
 
 """
+    MixtureOfProductIntensities{d}
+
+Mixture of Product intensities: ρ(g,r) = Σ_m ρ_{G,m}(g) · ρ_{R,m}(r)
+
+This models M species/groups, each with its own (G, R) niche distribution.
+Unlike ProductIntensity where G and R are independent, here each species
+has a COUPLED (G, R) niche - a site's G and R coordinates come from the
+same species.
+
+Key property: No cross-species mixing. Species m contributes ρ_{G,m}(g)·ρ_{R,m}(r),
+never ρ_{G,m}(g)·ρ_{R,n}(r) for n ≠ m.
+
+# Fields
+- `species::Vector{ProductIntensity{d}}`: Vector of species-specific (ρ_G, ρ_R) pairs
+- `_cache`: Cached species intensities (computed lazily)
+
+# Key quantities (computed via marginal_stats):
+- γ_m = c_{G,m} · c_{R,m}: Species-specific intensity (abundance emerges from niche)
+- C = Σ_m γ_m: Total intensity
+- P(species=m) = γ_m / C: Probability of sampling from species m
+"""
+struct MixtureOfProductIntensities{d} <: AbstractIntensity{d}
+    species::Vector{ProductIntensity{d, BdPlusMixture{d}, BdPlusMixture{d}}}
+
+    function MixtureOfProductIntensities{d}(species) where d
+        @assert length(species) > 0 "Must have at least one species"
+        new{d}(species)
+    end
+end
+
+"""
+    MixtureOfProductIntensities(species::Vector{ProductIntensity{d}})
+
+Construct a MixtureOfProductIntensities from a vector of species ProductIntensities.
+"""
+function MixtureOfProductIntensities(species::Vector{ProductIntensity{d, BdPlusMixture{d}, BdPlusMixture{d}}}) where d
+    return MixtureOfProductIntensities{d}(species)
+end
+
+"""
+    MixtureOfProductIntensities(ρ_Gs::Vector{BdPlusMixture{d}}, ρ_Rs::Vector{BdPlusMixture{d}})
+
+Construct from paired vectors of G and R marginals for each species.
+"""
+function MixtureOfProductIntensities(ρ_Gs::Vector{BdPlusMixture{d}}, ρ_Rs::Vector{BdPlusMixture{d}}) where d
+    @assert length(ρ_Gs) == length(ρ_Rs) "Must have same number of G and R distributions"
+    species = [ProductIntensity(ρ_Gs[m], ρ_Rs[m]) for m in 1:length(ρ_Gs)]
+    return MixtureOfProductIntensities{d}(species)
+end
+
+"""
+Evaluate MixtureOfProductIntensities at (g, r).
+ρ(g,r) = Σ_m ρ_{G,m}(g) · ρ_{R,m}(r)
+"""
+function (mop::MixtureOfProductIntensities{d})(g::AbstractVector, r::AbstractVector) where d
+    total = 0.0
+    for species in mop.species
+        total += species.ρ_G(g) * species.ρ_R(r)
+    end
+    return total
+end
+
+"""
+Evaluate MixtureOfProductIntensities for a tuple (g, r).
+"""
+function (mop::MixtureOfProductIntensities{d})(site::Tuple{<:AbstractVector, <:AbstractVector}) where d
+    return mop(site[1], site[2])
+end
+
+"""
+    n_species(mop::MixtureOfProductIntensities) -> Int
+
+Return the number of species in the mixture.
+"""
+n_species(mop::MixtureOfProductIntensities) = length(mop.species)
+
+"""
+    species_intensities(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+
+Compute species-specific total intensities γ_m = c_{G,m} · c_{R,m}.
+Returns a vector of γ values.
+"""
+function species_intensities(mop::MixtureOfProductIntensities{d};
+                              n_samples::Int=10000,
+                              rng::AbstractRNG=Random.default_rng()) where d
+    γ = Vector{Float64}(undef, length(mop.species))
+    for (m, species) in enumerate(mop.species)
+        c_G = total_intensity(species.ρ_G; n_samples=n_samples, rng=rng)
+        c_R = total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
+        γ[m] = c_G * c_R
+    end
+    return γ
+end
+
+"""
+    total_intensity(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+
+Compute total intensity C = Σ_m γ_m = Σ_m c_{G,m} · c_{R,m}.
+"""
+function total_intensity(mop::MixtureOfProductIntensities{d};
+                          n_samples::Int=10000,
+                          rng::AbstractRNG=Random.default_rng()) where d
+    return sum(species_intensities(mop; n_samples=n_samples, rng=rng))
+end
+
+"""
+    species_probabilities(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+
+Compute sampling probabilities for each species: P(species=m) = γ_m / C.
+Returns a vector of probabilities that sum to 1.
+"""
+function species_probabilities(mop::MixtureOfProductIntensities{d};
+                                n_samples::Int=10000,
+                                rng::AbstractRNG=Random.default_rng()) where d
+    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
+    C = sum(γ)
+    return γ ./ C
+end
+
+"""
+    marginal_stats(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+
+Compute statistics for MixtureOfProductIntensities.
+
+Returns a named tuple with:
+- γ: Vector of species-specific intensities γ_m = c_{G,m} · c_{R,m}
+- C: Total intensity (sum of γ)
+- species_probs: Sampling probabilities P(m) = γ_m / C
+- per_species: Vector of per-species stats (c_G, c_R, μ̃_G, μ̃_R, avg_conn_prob)
+- E_N: Expected total sites = C
+- E_edges_edge_centric: Expected edges = Σ_m γ_m · (μ̃_{G,m} · μ̃_{R,m})
+"""
+function marginal_stats(mop::MixtureOfProductIntensities{d};
+                         n_samples::Int=10000,
+                         rng::AbstractRNG=Random.default_rng()) where d
+    M = length(mop.species)
+
+    # Compute per-species statistics
+    per_species = Vector{NamedTuple}(undef, M)
+    γ = Vector{Float64}(undef, M)
+
+    for (m, species) in enumerate(mop.species)
+        c_G = total_intensity(species.ρ_G; n_samples=n_samples, rng=rng)
+        c_R = total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
+        μ_G = intensity_weighted_mean(species.ρ_G; n_samples=n_samples, rng=rng)
+        μ_R = intensity_weighted_mean(species.ρ_R; n_samples=n_samples, rng=rng)
+        μ̃_G = μ_G ./ c_G
+        μ̃_R = μ_R ./ c_R
+        avg_conn_prob = dot(μ̃_G, μ̃_R)
+
+        γ[m] = c_G * c_R
+        per_species[m] = (
+            c_G = c_G,
+            c_R = c_R,
+            μ̃_G = μ̃_G,
+            μ̃_R = μ̃_R,
+            avg_conn_prob = avg_conn_prob
+        )
+    end
+
+    C = sum(γ)
+    species_probs = γ ./ C
+
+    # Expected edges (edge-centric): Σ_m γ_m · P(connect|species m)
+    E_edges = sum(γ[m] * per_species[m].avg_conn_prob for m in 1:M)
+
+    return (
+        γ = γ,
+        C = C,
+        species_probs = species_probs,
+        per_species = per_species,
+        E_N = C,
+        E_edges_edge_centric = E_edges
+    )
+end
+
+"""
+    sample_from_mixture(mop::MixtureOfProductIntensities; rng=Random.default_rng()) -> (species_idx, g, r)
+
+Sample a site from MixtureOfProductIntensities.
+
+Algorithm:
+1. Compute γ_m = c_{G,m} · c_{R,m} for each species (cached if possible)
+2. Sample species m with probability γ_m / Σγ
+3. Sample g from ρ_{G,m} and r from ρ_{R,m}
+
+Returns a tuple (species_index, g, r) where g and r are LatentPoints.
+"""
+function sample_from_mixture(mop::MixtureOfProductIntensities{d};
+                              n_samples::Int=10000,
+                              rng::AbstractRNG=Random.default_rng()) where d
+    # Compute species probabilities
+    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
+    probs = γ ./ sum(γ)
+
+    # Sample species
+    m = sample(rng, 1:length(mop.species), Weights(probs))
+    species = mop.species[m]
+
+    # Sample (g, r) from the chosen species
+    g = sample_from_mixture(species.ρ_G; rng=rng)
+    r = sample_from_mixture(species.ρ_R; rng=rng)
+
+    return (m, g, r)
+end
+
+"""
     sample_from_mixture(bm::BdPlusMixture; rng=Random.default_rng()) -> LatentPoint
 
 Sample a single point from the BdPlusMixture using rejection sampling.

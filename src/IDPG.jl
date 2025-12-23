@@ -37,17 +37,21 @@ export Bd_plus_from_hyperspherical, Bd_plus_to_hyperspherical
 
 # Intensity
 export AbstractIntensity, ProductIntensity, BdPlusMixture, TimeVaryingIntensity
+export MixtureOfProductIntensities
 export marginal_stats, total_intensity, sample_from_mixture
 export marginal_total_intensity, intensity_weighted_mean, normalized_mean
+export n_species, species_intensities, species_probabilities
 
 # Sampling
 export InteractionSite, sample_ppp, sample_ppp_product, estimate_max_intensity
-export sample_from_grid, initialize_grid_from_mixture
+export sample_from_grid, sample_from_grid_full, initialize_grid_from_mixture
+export sample_site_from_mixture, sample_ppp_mixture, sample_ppp_mixture_sites_only
 
 # Graph generation
-export EdgeCentricSample
-export generate_node_centric, generate_edge_centric, discretize_edge_centric,
-       discretize_edge_centric_joint, discretize_with_weights
+export EdgeCentricSample, FullEdgeCentricSample
+export generate_node_centric, generate_edge_centric, generate_edge_centric_full
+export discretize_edge_centric, discretize_edge_centric_joint, discretize_with_weights
+export source_g, source_r, target_g, target_r, to_edge_centric
 
 # PDE evolution (hand-coded finite differences)
 export BdPlusGrid, create_Bd_plus_grid

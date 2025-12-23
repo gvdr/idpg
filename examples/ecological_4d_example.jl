@@ -1,13 +1,26 @@
-# Ecological Example: Food Web in 4D Latent Space
-# Demonstrates how higher-dimensional latent space allows for more
-# distinct ecological niches and clearer trophic structure.
+# Ecological Example: Food Web in 4D Latent Space using MixtureOfProductIntensities
 #
-# With 4D instead of 2D, species have more "corners" to occupy,
-# enabling finer niche differentiation and more realistic food web structure.
+# This example demonstrates:
+# 1. MixtureOfProductIntensities for ecological modeling where species have
+#    COUPLED (G, R) niches - no cross-species mixing between G and R
+# 2. How higher-dimensional latent space (4D) allows for more distinct
+#    ecological niches and clearer trophic structure
 #
-# Using hyperspherical coordinates (r, φ₁, φ₂, φ₃) to define guild positions:
-# - r: how "active" in the network (0=invisible, 1=maximally present)
-# - φ₁, φ₂, φ₃: angular positions defining niche location (0 to π/2)
+# Key model structure:
+#   ρ(g,r) = Σ_m ρ_{G,m}(g) · ρ_{R,m}(r)
+#
+# Each species m has:
+#   - ρ_{G,m}: niche in resource space (where it sits when being consumed)
+#   - ρ_{R,m}: niche in consumer space (what it targets when consuming)
+#   - γ_m = c_{G,m} · c_{R,m}: species-specific intensity (abundance)
+#
+# Structure:
+#   Phase 1: Simulation - run models and save results to files
+#   Phase 2: Visualization - load results and create figures
+#
+# Run with:
+#   julia --project=. examples/ecological_4d_example.jl           # Run both phases
+#   julia --project=. examples/ecological_4d_example.jl --viz     # Viz only (uses saved data)
 
 using IDPG
 using Random
@@ -17,11 +30,24 @@ using Graphs
 using GraphMakie
 using NetworkLayout
 using LinearAlgebra
+using Serialization
 
-rng = MersenneTwister(42)
+# Check for --viz flag (visualization only, skip simulation)
+VIZ_ONLY = "--viz" in ARGS
+
+# Output directory for saved data
+DATA_DIR = "output/applications/data"
+mkpath(DATA_DIR)
+
+rng = MersenneTwister(161)
 
 println("=" ^ 60)
 println("IDPG Ecological Example: 4D Food Web Modeling")
+if VIZ_ONLY
+    println("  Mode: Visualization only (loading saved data)")
+else
+    println("  Mode: Full run (simulation + visualization)")
+end
 println("=" ^ 60)
 
 # In 4D hyperspherical coordinates, we specify:
@@ -40,38 +66,57 @@ println("=" ^ 60)
 
 guild_names = ["Producers", "Small Herb.", "Large Herb.", "Small Pred.", "Apex Pred."]
 
-# Angle constants for clean dimensional separation
-# More extreme angles for better orthogonality between trophic levels
-const small_angle = π/60   # ≈ 3° - strongly concentrates weight in current dimension
-const large_angle = 29π/60 # ≈ 87° - passes almost all weight to later dimensions
+# =============================================================================
+# Orthogonal Trophic Design
+# =============================================================================
+# Key insight: use orthogonality in 4D to enforce trophic structure
+#
+# Dimension usage:
+#   Dim 1: Producer resources (g)
+#   Dim 2: Herbivore resources (g)
+#   Dim 3: Predator resources (g)
+#   Dim 4: "Null consumption" - producers point r here, minimal g here
+#
+# This ensures:
+#   - Producers don't consume (r orthogonal to all g)
+#   - Each trophic level targets the one below
+#   - Some noise/overlap for realism
 
 # Resource roles (g) - where species sit when being consumed
-# Each trophic level peaks in its own dimension with minimal overlap
-g_hyperspherical = [
-    (0.95, [small_angle, small_angle, small_angle]),  # Producers: peak in dim 1, highly visible
-    (0.90, [large_angle, small_angle, small_angle]),  # Small herbivores: peak in dim 2
-    (0.85, [large_angle, small_angle, small_angle]),  # Large herbivores: peak in dim 2 (similar niche)
-    (0.75, [large_angle, large_angle, small_angle]),  # Small predators: peak in dim 3
-    (0.20, [large_angle, large_angle, large_angle]),  # Apex predators: peak in dim 4, LOW visibility
+# Each trophic level peaks in its designated dimension
+# g[4] ≈ 0 for all species so producers (who target dim 4) consume almost nothing
+means_G = [
+    [0.90, 0.10, 0.02, 0.00],   # Producers: strong in dim 1
+    [0.08, 0.88, 0.08, 0.00],   # Small herbivores: strong in dim 2
+    [0.08, 0.82, 0.15, 0.00],   # Large herbivores: dim 2, some dim 3
+    [0.05, 0.10, 0.88, 0.00],   # Small predators: strong in dim 3
+    [0.05, 0.05, 0.12, 0.00],   # Apex predators: small g overall (rarely eaten)
 ]
 
-# Consumer roles (r) - each level targets the level below
-# More focused targeting to reduce cross-trophic noise
-r_hyperspherical = [
-    (0.02, [small_angle, small_angle, small_angle]),   # Producers: nearly zero consumption
-    (0.95, [small_angle, small_angle, small_angle]),   # Small herbivores: target dim 1 (producers)
-    (0.90, [small_angle, small_angle, small_angle]),   # Large herbivores: target dim 1 (producers)
-    (0.90, [large_angle, small_angle, small_angle]),   # Small predators: target dim 2 (herbivores)
-    (0.95, [large_angle, large_angle, small_angle]),   # Apex: target dim 3 (small predators)
+# Consumer roles (r) - each level targets the dimension below
+# Producers point to dim 4 which has NO resources → zero consumption
+means_R = [
+    [0.00, 0.00, 0.00, 0.95],   # Producers: ONLY dim 4 (orthogonal to all g!)
+    [0.92, 0.08, 0.02, 0.00],   # Small herbivores: target dim 1 (producers)
+    [0.88, 0.12, 0.02, 0.00],   # Large herbivores: target dim 1, some dim 2
+    [0.08, 0.88, 0.08, 0.00],   # Small predators: target dim 2 (herbivores)
+    [0.05, 0.40, 0.60, 0.00],   # Apex: target dims 2-3 (herbivores AND predators)
 ]
 
-# Convert to Cartesian coordinates
-means_G = [Vector(Bd_plus_from_hyperspherical(r, angles)) for (r, angles) in g_hyperspherical]
-means_R = [Vector(Bd_plus_from_hyperspherical(r, angles)) for (r, angles) in r_hyperspherical]
+# Normalize to ensure they're in B^4_+ (norm ≤ 1)
+for i in 1:5
+    g_norm = sqrt(sum(means_G[i].^2))
+    r_norm = sqrt(sum(means_R[i].^2))
+    if g_norm > 1.0
+        means_G[i] = means_G[i] ./ g_norm
+    end
+    if r_norm > 1.0
+        means_R[i] = means_R[i] ./ r_norm
+    end
+end
 
-# Weights for mixture components (abundance distribution)
-weights_G = [0.35, 0.25, 0.20, 0.15, 0.05]  # Most biomass at base
-weights_R = [0.05, 0.25, 0.20, 0.30, 0.20]  # Consumers more evenly distributed
+# Note: Species scales will be computed from target E[N] using compute_scales_for_target_EN()
+# This ensures we get meaningful numbers of interactions regardless of dimension
 
 println("\nGuild structure (4D positions):")
 for i in 1:5
@@ -98,37 +143,152 @@ for i in 1:5
     println()
 end
 
-# Compare 2D vs 4D
-# Note: 4D needs higher scale because B^4_+ has smaller volume than B^2_+
-# Volume ratio: B^d_+ ~ π^(d/2) / (2^d * Γ(d/2+1))
+# Helper function to create MixtureOfProductIntensities from means and scales
+function create_species_mixture(means_G, means_R, κ::Float64, scales)
+    d = length(means_G[1])
+    n_species = length(means_G)
+
+    # Create per-species BdPlusMixture (single component each)
+    ρ_Gs = BdPlusMixture{d}[]
+    ρ_Rs = BdPlusMixture{d}[]
+
+    for m in 1:n_species
+        push!(ρ_Gs, BdPlusMixture([1.0], [means_G[m]], [κ], scales[m]))
+        push!(ρ_Rs, BdPlusMixture([1.0], [means_R[m]], [κ], scales[m]))
+    end
+
+    return MixtureOfProductIntensities(ρ_Gs, ρ_Rs)
+end
+
+"""
+Compute scales to achieve target E[N] with given relative abundances.
+
+Theory:
+  γ_m = c_{G,m} · c_{R,m} = s_m² · I_{G,m} · I_{R,m}
+  E[N] = Σ_m γ_m
+
+Given target E[N] and proportions p_m (Σp_m = 1):
+  s_m = √(p_m · E[N] / (I_{G,m} · I_{R,m}))
+
+where I_{G,m} = ∫ exp(-κ||g-μ_{G,m}||²) dg is computed via MC.
+"""
+function compute_scales_for_target_EN(means_G, means_R, κ::Float64,
+                                       target_EN::Float64, proportions;
+                                       n_samples::Int=50000,
+                                       rng::AbstractRNG=Random.default_rng())
+    d = length(means_G[1])
+    M = length(means_G)
+    vol = Bd_plus_volume(d)
+
+    # Compute geometry-dependent integrals I_{G,m} and I_{R,m} via MC
+    # Using unit scale (scale=1) to get the "shape" integral
+    I_G = zeros(M)
+    I_R = zeros(M)
+
+    for _ in 1:n_samples
+        x = uniform_Bd_plus_sample(d; rng=rng)
+        for m in 1:M
+            # Evaluate unnormalized Gaussian kernel (scale=1)
+            dist_sq_G = sum((x[i] - means_G[m][i])^2 for i in 1:d)
+            dist_sq_R = sum((x[i] - means_R[m][i])^2 for i in 1:d)
+            I_G[m] += exp(-κ * dist_sq_G)
+            I_R[m] += exp(-κ * dist_sq_R)
+        end
+    end
+
+    # Convert to integrals
+    I_G .*= vol / n_samples
+    I_R .*= vol / n_samples
+
+    # Compute scales: s_m = √(p_m · E[N] / (I_G[m] · I_R[m]))
+    scales = zeros(M)
+    for m in 1:M
+        product = I_G[m] * I_R[m]
+        if product > 1e-10
+            scales[m] = sqrt(proportions[m] * target_EN / product)
+        else
+            scales[m] = 1.0  # Fallback for edge cases
+            @warn "Species " * string(m) * " has near-zero integral product"
+        end
+    end
+
+    return scales, I_G, I_R
+end
+
+# Compare 2D vs 4D using MixtureOfProductIntensities
+# Scales computed from target E[N] and species proportions
+
+# 2D scenario setup
+means_G_2d = [Vector(Bd_plus_from_hyperspherical(0.85, [π/10])),
+              Vector(Bd_plus_from_hyperspherical(0.85, [π/4])),
+              Vector(Bd_plus_from_hyperspherical(0.85, [π/3]))]
+means_R_2d = [Vector(Bd_plus_from_hyperspherical(0.85, [π/6])),
+              Vector(Bd_plus_from_hyperspherical(0.85, [π/5])),
+              Vector(Bd_plus_from_hyperspherical(0.85, [π/4]))]
+κ_2d = 20.0
+target_EN_2d = 50.0
+proportions_2d = [0.5, 0.3, 0.2]
+
+println("\nComputing scales for 2D scenario (target E[N] = ", target_EN_2d, ")...")
+scales_2d, I_G_2d, I_R_2d = compute_scales_for_target_EN(
+    means_G_2d, means_R_2d, κ_2d, target_EN_2d, proportions_2d; rng=rng)
+println("  Geometry integrals I_G: ", round.(I_G_2d, digits=4))
+println("  Geometry integrals I_R: ", round.(I_R_2d, digits=4))
+println("  Computed scales: ", round.(scales_2d, digits=2))
+
+# 4D scenario setup - use the guild means defined above
+# With orthogonal design, moderate κ is sufficient
+κ_4d = 50.0  # Moderate concentration (σ ≈ 0.1)
+target_EN_4d = 100.0  # Target expected sites
+proportions_4d = [0.30, 0.25, 0.20, 0.15, 0.10]  # Ecological pyramid, apex at 10% for visibility
+
+println("\nComputing scales for 4D scenario (target E[N] = ", target_EN_4d, ")...")
+scales_4d, I_G_4d, I_R_4d = compute_scales_for_target_EN(
+    means_G, means_R, κ_4d, target_EN_4d, proportions_4d; rng=rng)
+println("  Geometry integrals I_G: ", round.(I_G_4d, digits=4))
+println("  Geometry integrals I_R: ", round.(I_R_4d, digits=4))
+println("  Computed scales: ", round.(scales_4d, digits=2))
+
 scenarios = [
     (
         name = "2D Latent Space",
         dim = 2,
-        means_G = [Vector(Bd_plus_from_hyperspherical(0.85, [π/10])),
-                   Vector(Bd_plus_from_hyperspherical(0.85, [π/4])),
-                   Vector(Bd_plus_from_hyperspherical(0.85, [π/3]))],
-        means_R = [Vector(Bd_plus_from_hyperspherical(0.85, [π/6])),
-                   Vector(Bd_plus_from_hyperspherical(0.85, [π/5])),
-                   Vector(Bd_plus_from_hyperspherical(0.85, [π/4]))],
-        weights_G = [0.5, 0.3, 0.2],
-        weights_R = [0.3, 0.4, 0.3],
-        κ = 50.0,
-        scale = 120.0,
+        means_G = means_G_2d,
+        means_R = means_R_2d,
+        species_scales = scales_2d,
+        κ = κ_2d,
     ),
     (
         name = "4D Latent Space",
         dim = 4,
         means_G = means_G,
         means_R = means_R,
-        weights_G = weights_G,
-        weights_R = weights_R,
-        κ = 30.0,
-        scale = 8000.0,  # Very high scale to compensate for low radii
+        species_scales = scales_4d,
+        κ = κ_4d,
     ),
 ]
 
-# Helper function: assign point to nearest guild mean (defined early for use in comparison)
+# Helper function: assign site to nearest guild using FULL (g, r) signature
+function assign_site_to_guild(site::InteractionSite, guild_full_means)
+    site_full = vcat(Vector(site.g), Vector(site.r))  # 2d-dimensional
+    min_dist = Inf
+    best_guild = 1
+    for (i, full_mean) in enumerate(guild_full_means)
+        dist = norm(site_full .- full_mean)
+        if dist < min_dist
+            min_dist = dist
+            best_guild = i
+        end
+    end
+    return best_guild
+end
+
+# Build full (g, r) guild means from separate G and R means
+function build_full_guild_means(means_G, means_R)
+    return [vcat(means_G[i], means_R[i]) for i in 1:length(means_G)]
+end
+
+# Legacy: assign point to nearest guild mean (for backward compatibility)
 function assign_to_nearest_guild(point, guild_means)
     min_dist = Inf
     best_guild = 1
@@ -154,33 +314,36 @@ comparison_min_count = 3.0
 for (col, scenario) in enumerate(scenarios)
     println("\n--- ", scenario.name, " ---")
 
-    n_guilds = length(scenario.weights_G)
-    κ_G = fill(scenario.κ, n_guilds)
-    κ_R = fill(scenario.κ, n_guilds)
+    n_guilds = length(scenario.species_scales)
 
-    ρ_G = BdPlusMixture(scenario.weights_G, scenario.means_G, κ_G, scenario.scale)
-    ρ_R = BdPlusMixture(scenario.weights_R, scenario.means_R, κ_R, scenario.scale)
-    ρ = ProductIntensity(ρ_G, ρ_R)
+    # Create MixtureOfProductIntensities (species have coupled G, R niches)
+    ρ = create_species_mixture(scenario.means_G, scenario.means_R, scenario.κ, scenario.species_scales)
 
-    stats = marginal_stats(ρ; rng=rng)
+    # Use more MC samples for 4D case
+    n_mc = scenario.dim == 4 ? 50000 : 10000
+    stats = marginal_stats(ρ; n_samples=n_mc, rng=rng)
     println("  Dimension: ", scenario.dim)
-    println("  Number of guilds: ", n_guilds)
-    println("  Expected opportunities E[N]: ", round(stats.E_N, digits=1))
-    println("  Avg connection prob: ", round(stats.avg_conn_prob, digits=3))
+    println("  Number of species: ", n_species(ρ))
+    println("  Species intensities γ: ", round.(stats.γ, digits=1))
+    println("  Total intensity C: ", round(stats.C, digits=1))
     println("  Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
 
-    # Sample interactions
-    sites = sample_ppp_product(ρ; rng=MersenneTwister(42 + col))
-    interactions = generate_edge_centric(sites; rng=MersenneTwister(42 + col))
+    # Sample sites from MixtureOfProductIntensities (species labels + sites)
+    labeled_sites = sample_ppp_mixture(ρ; n_samples=n_mc, rng=MersenneTwister(161 + col))
+    sites = [site for (_, site) in labeled_sites]  # Extract just the InteractionSites
+    interactions = generate_edge_centric_full(sites; rng=MersenneTwister(161 + col))
     println("  Sampled opportunities: ", length(sites))
     println("  Realized interactions: ", length(interactions))
 
-    # Assign to guilds using nearest-mean (not k-means)
+    # Build full guild means for clustering
+    guild_full_means = build_full_guild_means(scenario.means_G, scenario.means_R)
+
+    # Assign to guilds using FULL (g, r) signature
     n_clusters = n_guilds
     edge_weights = zeros(Int, n_clusters, n_clusters)
     for k in 1:length(interactions)
-        src_guild = assign_to_nearest_guild(interactions.sources[k], scenario.means_G)
-        tgt_guild = assign_to_nearest_guild(interactions.targets[k], scenario.means_R)
+        src_guild = assign_site_to_guild(interactions.source_sites[k], guild_full_means)
+        tgt_guild = assign_site_to_guild(interactions.target_sites[k], guild_full_means)
         edge_weights[src_guild, tgt_guild] += 1
     end
 
@@ -211,7 +374,7 @@ for (col, scenario) in enumerate(scenarios)
         for i in 1:n_clusters
             for j in 1:n_clusters
                 if i != j && edge_weights[i, j] >= comparison_min_count
-                    add_edge!(food_web, j, i)  # Arrow: consumer j → resource i
+                    add_edge!(food_web, i, j)  # Arrow: resource i → consumer j (energy flow)
                     w_normalized = edge_weights[i, j] / max_weight
                     width = 0.5 + 6.0 * w_normalized^0.6
                     push!(edge_widths, width)
@@ -266,14 +429,11 @@ println("\n" * "=" ^ 60)
 println("4D Food Web Variability (2x2 grid of samples)")
 println("=" ^ 60)
 
-# Use the 4D scenario settings
+# Use the 4D scenario settings with MixtureOfProductIntensities
 scenario_4d = scenarios[2]
-n_guilds_4d = length(scenario_4d.weights_G)
-κ_4d = fill(scenario_4d.κ, n_guilds_4d)
+n_guilds_4d = length(scenario_4d.species_scales)
 
-ρ_G_4d = BdPlusMixture(scenario_4d.weights_G, scenario_4d.means_G, κ_4d, scenario_4d.scale)
-ρ_R_4d = BdPlusMixture(scenario_4d.weights_R, scenario_4d.means_R, κ_4d, scenario_4d.scale)
-ρ_4d = ProductIntensity(ρ_G_4d, ρ_R_4d)
+ρ_4d = create_species_mixture(scenario_4d.means_G, scenario_4d.means_R, scenario_4d.κ, scenario_4d.species_scales)
 
 fig_var = Figure(size=(1000, 1000))
 Label(fig_var[0, :], "4D Food Web: Variability Across Samples", fontsize=18, font=:bold)
@@ -286,19 +446,23 @@ node_colors_4d = [Makie.wong_colors()[mod1(i, 7)] for i in 1:n_guilds_4d]
 
 sample_seeds = [1001, 1002, 1003, 1004]  # Different seeds for variety
 
+# Build full guild means for 4D scenario
+guild_full_means_4d = build_full_guild_means(scenario_4d.means_G, scenario_4d.means_R)
+
 for (idx, seed) in enumerate(sample_seeds)
     row = div(idx - 1, 2) + 1
     col = mod(idx - 1, 2) + 1
 
-    # Sample one realization
-    sites = sample_ppp_product(ρ_4d; rng=MersenneTwister(seed))
-    interactions = generate_edge_centric(sites; rng=MersenneTwister(seed))
+    # Sample one realization with full site info using MixtureOfProductIntensities
+    labeled_sites = sample_ppp_mixture(ρ_4d; n_samples=50000, rng=MersenneTwister(seed))
+    sites = [site for (_, site) in labeled_sites]
+    interactions = generate_edge_centric_full(sites; rng=MersenneTwister(seed))
 
-    # Assign to guilds
+    # Assign to guilds using full (g, r) signature
     edge_weights = zeros(Int, n_guilds_4d, n_guilds_4d)
     for k in 1:length(interactions)
-        src_guild = assign_to_nearest_guild(interactions.sources[k], scenario_4d.means_G)
-        tgt_guild = assign_to_nearest_guild(interactions.targets[k], scenario_4d.means_R)
+        src_guild = assign_site_to_guild(interactions.source_sites[k], guild_full_means_4d)
+        tgt_guild = assign_site_to_guild(interactions.target_sites[k], guild_full_means_4d)
         edge_weights[src_guild, tgt_guild] += 1
     end
 
@@ -327,7 +491,7 @@ for (idx, seed) in enumerate(sample_seeds)
     for i in 1:n_guilds_4d
         for j in 1:n_guilds_4d
             if i != j && edge_weights[i, j] > 0
-                add_edge!(sample_web, j, i)
+                add_edge!(sample_web, i, j)  # Energy flow direction
                 w_norm = edge_weights[i, j] / max_w
                 push!(edge_widths, 0.5 + 4.0 * w_norm^0.6)
                 push!(arrow_sizes, 6.0 + 14.0 * w_norm^0.6)
@@ -369,68 +533,136 @@ println("\n" * "=" ^ 60)
 println("Detailed 4D Food Web Analysis")
 println("=" ^ 60)
 
-# Use 4D scenario with more interactions
 n_guilds = 5
-κ_vals = [40.0, 40.0, 40.0, 40.0, 40.0]
-scale_4d = 40000.0  # High scale to get sufficient interactions with orthogonal niches
-
-ρ_G = BdPlusMixture(weights_G, means_G, κ_vals, scale_4d)
-ρ_R = BdPlusMixture(weights_R, means_R, κ_vals, scale_4d)
-ρ = ProductIntensity(ρ_G, ρ_R)
-
-stats = marginal_stats(ρ; rng=rng)
-println("Expected opportunities E[N]: ", round(stats.E_N, digits=1))
-println("Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
-
-# Multiple realizations - assign interactions to guilds by nearest mean
 n_trials = 50
+DETAILED_DATA_FILE = DATA_DIR * "/ecological_4d_detailed.jls"
 
-interaction_matrices = []
-edge_presence = zeros(n_guilds, n_guilds)  # Count trials where each edge is present
+# Expected interaction matrix (computed from means - always available)
+expected_matrix = zeros(n_guilds, n_guilds)
+for i in 1:n_guilds
+    for j in 1:n_guilds
+        expected_matrix[i, j] = dot(means_G[i], means_R[j])
+    end
+end
 
-for t in 1:n_trials
-    sites = sample_ppp_product(ρ; rng=MersenneTwister(100 + t))
-    interactions = generate_edge_centric(sites; rng=MersenneTwister(100 + t))
+if !VIZ_ONLY
+    # =========== SIMULATION PHASE ===========
+    κ_detailed = 50.0
+    target_EN_detailed = 500.0
+    proportions_detailed = [0.30, 0.25, 0.20, 0.15, 0.10]
 
-    if length(interactions) >= 5
-        # Assign each source/target to nearest guild mean
-        edge_weights = zeros(n_guilds, n_guilds)
-        for k in 1:length(interactions)
-            src_guild = assign_to_nearest_guild(interactions.sources[k], means_G)
-            tgt_guild = assign_to_nearest_guild(interactions.targets[k], means_R)
-            edge_weights[src_guild, tgt_guild] += 1
+    println("Computing scales for detailed analysis (target E[N] = ", target_EN_detailed, ")...")
+    detailed_scales, _, _ = compute_scales_for_target_EN(
+        means_G, means_R, κ_detailed, target_EN_detailed, proportions_detailed; rng=rng)
+    println("  Computed scales: ", round.(detailed_scales, digits=2))
+
+    ρ = create_species_mixture(means_G, means_R, κ_detailed, detailed_scales)
+
+    stats = marginal_stats(ρ; n_samples=50000, rng=rng)
+    println("Number of species: ", n_species(ρ))
+    println("Species intensities γ: ", round.(stats.γ, digits=1))
+    println("Total intensity C: ", round(stats.C, digits=1))
+    println("Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
+
+    # Build full guild means for detailed analysis
+    guild_full_means_detailed = build_full_guild_means(means_G, means_R)
+
+    interaction_matrices = []
+    guild_counts_list = []
+    edge_presence = zeros(n_guilds, n_guilds)
+
+    for t in 1:n_trials
+        labeled_sites = sample_ppp_mixture(ρ; n_samples=50000, rng=MersenneTwister(1610 + t))
+        sites = [site for (_, site) in labeled_sites]
+        interactions = generate_edge_centric_full(sites; rng=MersenneTwister(1610 + t))
+
+        if length(interactions) >= 5
+            guild_counts = zeros(Int, n_guilds)
+            for site in sites
+                g = assign_site_to_guild(site, guild_full_means_detailed)
+                guild_counts[g] += 1
+            end
+            push!(guild_counts_list, guild_counts)
+
+            edge_weights = zeros(n_guilds, n_guilds)
+            for k in 1:length(interactions)
+                src_guild = assign_site_to_guild(interactions.source_sites[k], guild_full_means_detailed)
+                tgt_guild = assign_site_to_guild(interactions.target_sites[k], guild_full_means_detailed)
+                edge_weights[src_guild, tgt_guild] += 1
+            end
+            push!(interaction_matrices, edge_weights)
+            edge_presence .+= (edge_weights .> 0)
         end
-        push!(interaction_matrices, edge_weights)
-
-        # Track edge presence (binary: is edge present in this trial?)
-        edge_presence .+= (edge_weights .> 0)
     end
-end
 
-println("Valid trials (with enough interactions): ", length(interaction_matrices), "/", n_trials)
+    println("Valid trials (with enough interactions): ", length(interaction_matrices), "/", n_trials)
 
-if isempty(interaction_matrices)
-    println("Warning: No valid trials - try increasing scale")
-    avg_matrix = zeros(n_guilds, n_guilds)
-    edge_frequency = zeros(n_guilds, n_guilds)
+    if isempty(interaction_matrices)
+        println("Warning: No valid trials - try increasing scale")
+        avg_matrix = zeros(n_guilds, n_guilds)
+        avg_guild_counts = ones(n_guilds)
+        edge_frequency = zeros(n_guilds, n_guilds)
+    else
+        avg_matrix = zeros(n_guilds, n_guilds)
+        for mat in interaction_matrices
+            avg_matrix .+= mat
+        end
+        avg_matrix ./= length(interaction_matrices)
+
+        avg_guild_counts = zeros(n_guilds)
+        for counts in guild_counts_list
+            avg_guild_counts .+= counts
+        end
+        avg_guild_counts ./= length(guild_counts_list)
+        println("Average guild counts: ", round.(avg_guild_counts, digits=1))
+
+        edge_frequency = edge_presence ./ length(interaction_matrices)
+    end
+
+    # Per-capita normalization
+    percapita_matrix = zeros(n_guilds, n_guilds)
+    for i in 1:n_guilds
+        for j in 1:n_guilds
+            denom = avg_guild_counts[i] * avg_guild_counts[j]
+            if denom > 0
+                percapita_matrix[i, j] = avg_matrix[i, j] / denom
+            end
+        end
+    end
+
+    # Save results
+    results = Dict(
+        "avg_matrix" => avg_matrix,
+        "avg_guild_counts" => avg_guild_counts,
+        "percapita_matrix" => percapita_matrix,
+        "edge_frequency" => edge_frequency,
+        "n_trials" => n_trials,
+    )
+    serialize(DETAILED_DATA_FILE, results)
+    println("Saved simulation results to ", DETAILED_DATA_FILE)
+
 else
-    # Average interaction matrix
-    avg_matrix = zeros(n_guilds, n_guilds)
-    for mat in interaction_matrices
-        avg_matrix .+= mat
-    end
-    avg_matrix ./= length(interaction_matrices)
-
-    # Edge frequency: fraction of trials where each edge appeared
-    edge_frequency = edge_presence ./ length(interaction_matrices)
+    # =========== LOAD SAVED DATA ===========
+    println("Loading saved data from ", DETAILED_DATA_FILE)
+    results = deserialize(DETAILED_DATA_FILE)
+    avg_matrix = results["avg_matrix"]
+    avg_guild_counts = results["avg_guild_counts"]
+    percapita_matrix = results["percapita_matrix"]
+    edge_frequency = results["edge_frequency"]
+    n_trials = results["n_trials"]
+    println("Loaded results from ", n_trials, " trials")
 end
 
-# Filter edges by average count threshold (not frequency)
-# This filters out weak edges that appear due to sampling noise
-min_edge_count = 20.0  # Minimum average count to filter out low-probability noise
+# =========== VISUALIZATION PHASE ===========
+# (This runs in both modes)
+
+# Visualization parameters (tweak these without re-running simulation!)
+min_edge_count = 50.0  # Minimum average count for filtered graph (was 20.0)
+min_percapita_rate = 0.25  # Alternative: filter by per-capita rate
+
 significant_edges = avg_matrix .>= min_edge_count
-n_significant = count(significant_edges) - count(i -> significant_edges[i,i], 1:n_guilds)  # exclude diagonal
-println("Edges with avg count ≥", min_edge_count, ": ", n_significant, " (excl. diagonal)")
+n_significant = count(significant_edges) - count(i -> significant_edges[i,i], 1:n_guilds)
+println("\nEdges with avg count ≥", min_edge_count, ": ", n_significant, " (excl. diagonal)")
 
 println("\nAverage interaction counts (* = included in filtered graph, count ≥", min_edge_count, "):")
 print("           ")
@@ -451,12 +683,26 @@ for i in 1:n_guilds
     println()
 end
 
-# Create detailed figure with 2 panels
-fig2 = Figure(size=(1100, 500))
+println("\nPer-capita interaction rates (observed / (n_source × n_target)):")
+print("           ")
+for j in 1:n_guilds
+    print(rpad(guild_names[j][1:6], 10))
+end
+println()
+for i in 1:n_guilds
+    print(rpad(guild_names[i], 11))
+    for j in 1:n_guilds
+        print(rpad(string(round(percapita_matrix[i, j], digits=3)), 10))
+    end
+    println()
+end
 
-# Panel 1: Average interaction counts (observed)
+# Create detailed figure with 3 panels
+fig2 = Figure(size=(1400, 500))
+
+# Panel 1: Average interaction counts (observed - raw)
 ax1 = Axis(fig2[1, 1],
-    title = "Observed Interactions\n(avg over " * string(n_trials) * " trials)",
+    title = "Observed Counts\n(avg over " * string(n_trials) * " trials)",
     xlabel = "Consumer guild",
     ylabel = "Resource guild",
     xticks = (1:n_guilds, guild_names),
@@ -465,11 +711,11 @@ ax1 = Axis(fig2[1, 1],
     yreversed = true)
 
 hm = heatmap!(ax1, permutedims(avg_matrix), colormap=:YlOrRd)
-Colorbar(fig2[1, 2], hm, label="Avg. interactions")
+Colorbar(fig2[1, 2], hm, label="Avg. count")
 
-# Panel 2: Expected interaction strength
+# Panel 2: Per-capita normalized (makes it comparable to g·r)
 ax2 = Axis(fig2[1, 3],
-    title = "Expected Interaction\n(g_resource · r_consumer)",
+    title = "Per-Capita Rate\n(count / (n_src × n_tgt))",
     xlabel = "Consumer guild",
     ylabel = "Resource guild",
     xticks = (1:n_guilds, guild_names),
@@ -477,39 +723,52 @@ ax2 = Axis(fig2[1, 3],
     xticklabelrotation = π/4,
     yreversed = true)
 
-expected_matrix = zeros(n_guilds, n_guilds)
-for i in 1:n_guilds
-    for j in 1:n_guilds
-        expected_matrix[i, j] = dot(means_G[i], means_R[j])
-    end
-end
+hm2 = heatmap!(ax2, permutedims(percapita_matrix), colormap=:YlOrRd)
+Colorbar(fig2[1, 4], hm2, label="Rate")
 
-hm2 = heatmap!(ax2, permutedims(expected_matrix), colormap=:YlOrRd)
-Colorbar(fig2[1, 4], hm2, label="g · r")
+# Panel 3: Expected interaction strength (computed earlier from means_G, means_R)
+ax3 = Axis(fig2[1, 5],
+    title = "Expected g · r\n(theoretical)",
+    xlabel = "Consumer guild",
+    ylabel = "Resource guild",
+    xticks = (1:n_guilds, guild_names),
+    yticks = (1:n_guilds, guild_names),
+    xticklabelrotation = π/4,
+    yreversed = true)
+
+hm3 = heatmap!(ax3, permutedims(expected_matrix), colormap=:YlOrRd)
+Colorbar(fig2[1, 6], hm3, label="g · r")
 
 save("output/applications/ecological_4d_detailed.png", fig2)
 println("\nSaved ecological_4d_detailed.png")
 
-# Create filtered food web graph
-println("\n--- Filtered Food Web (avg count ≥" * string(min_edge_count) * ") ---")
+# Create filtered food web graph using per-capita rate threshold
+# This filters by interaction probability, not raw counts (better for trophic structure)
+significant_by_rate = percapita_matrix .>= min_percapita_rate
+n_significant_rate = count(significant_by_rate) - count(i -> significant_by_rate[i,i], 1:n_guilds)
+println("\n--- Filtered Food Web (per-capita rate ≥", min_percapita_rate, ") ---")
+println("Edges passing rate threshold: ", n_significant_rate, " (excl. diagonal)")
+
 fig3 = Figure(size=(900, 700))
 ax_graph = Axis(fig3[1, 1],
-    title = "Filtered Food Web (edges with avg count ≥" * string(Int(min_edge_count)) * ")")
+    title = "Filtered Food Web (per-capita rate ≥" * string(min_percapita_rate) * ")")
 hidedecorations!(ax_graph)
 hidespines!(ax_graph)
 
-# Build filtered graph using count threshold
+# Build filtered graph using per-capita rate threshold
 filtered_web = SimpleDiGraph(n_guilds)
 filtered_edge_widths = Float64[]
 filtered_arrow_sizes = Float64[]
 
 for i in 1:n_guilds
     for j in 1:n_guilds
-        if i != j && significant_edges[i, j]
-            add_edge!(filtered_web, j, i)  # Arrow: consumer j → resource i
-            w_normalized = avg_matrix[i, j] / maximum(avg_matrix)
-            push!(filtered_edge_widths, 1.0 + 5.0 * w_normalized^0.6)
-            push!(filtered_arrow_sizes, 8.0 + 18.0 * w_normalized^0.6)
+        # Filter by per-capita rate (better reflects true interaction probability)
+        if i != j && percapita_matrix[i, j] >= min_percapita_rate
+            add_edge!(filtered_web, i, j)  # Arrow: resource i → consumer j (energy flow)
+            # Scale by per-capita rate (not raw count)
+            rate = percapita_matrix[i, j]
+            push!(filtered_edge_widths, 1.0 + 8.0 * rate)
+            push!(filtered_arrow_sizes, 10.0 + 20.0 * rate)
         end
     end
 end

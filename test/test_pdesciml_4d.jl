@@ -3,8 +3,8 @@ using Test
 using IDPG
 
 @testset "PDESciML 4D" begin
-    # Use small resolution for fast testing
-    resolution = 6
+    # Use very small resolution for fast testing (4D is expensive!)
+    resolution = 4
     dx = 1.0 / (resolution - 1)
 
     # Create a simple initial condition: Gaussian blob in the center
@@ -62,17 +62,42 @@ using IDPG
 
     @testset "4D Advection" begin
         println("Testing 4D advection with MethodOfLines...")
+        # Advection with upwind scheme needs larger grid for stencil
+        # Use resolution 5 minimum for 4D advection
+        adv_resolution = 5
+        adv_dx = 1.0 / (adv_resolution - 1)
+
+        # Create initial condition for advection
+        u0_adv = zeros(Float64, adv_resolution, adv_resolution, adv_resolution, adv_resolution)
+        adv_center = adv_resolution ÷ 2
+        for i in 1:adv_resolution
+            for j in 1:adv_resolution
+                for k in 1:adv_resolution
+                    for l in 1:adv_resolution
+                        x1 = (i - 1) * adv_dx
+                        x2 = (j - 1) * adv_dx
+                        x3 = (k - 1) * adv_dx
+                        x4 = (l - 1) * adv_dx
+                        if x1^2 + x2^2 + x3^2 + x4^2 <= 1.0
+                            dist_sq = (x1 - 0.5)^2 + (x2 - 0.5)^2 + (x3 - 0.5)^2 + (x4 - 0.5)^2
+                            u0_adv[i, j, k, l] = exp(-10 * dist_sq)
+                        end
+                    end
+                end
+            end
+        end
+
         v = [0.2, 0.1, 0.05, 0.0]  # Velocity in 4D
         tspan = (0.0, 0.1)
 
-        result = solve_advection_mol_4d(u0, v, tspan;
-                                        dx=dx,
+        result = solve_advection_mol_4d(u0_adv, v, tspan;
+                                        dx=adv_dx,
                                         saveat=0.05,
                                         apply_mask=true)
 
         @test length(result.times) >= 2
         @test length(result.snapshots) == length(result.times)
-        @test size(result.snapshots[1]) == (resolution, resolution, resolution, resolution)
+        @test size(result.snapshots[1]) == (adv_resolution, adv_resolution, adv_resolution, adv_resolution)
         @test !isnothing(result.mask)
 
         println("  Number of snapshots: " * string(length(result.snapshots)))

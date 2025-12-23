@@ -133,11 +133,13 @@ function solve_diffusion_mol_2d(u0::Matrix{Float64}, D::Float64, tspan::Tuple;
     # Create mask
     mask = apply_mask ? create_Bd_plus_mask_2d(resolution) : nothing
 
-    # Extract snapshots
-    times = sol.t
+    # Extract snapshots using MethodOfLines solution interface
+    times = sol[t]
+    sol_array = sol[ρ(t, x, y)]
+
     snapshots = []
-    for i in eachindex(sol.t)
-        u = reshape(copy(sol.u[i]), resolution, resolution)
+    for i in eachindex(times)
+        u = copy(sol_array[i, :, :])
         if !isnothing(mask)
             apply_Bd_plus_mask!(u, mask)
         end
@@ -202,10 +204,13 @@ function solve_advection_mol_2d(u0::Matrix{Float64}, v::Vector{Float64}, tspan::
 
     mask = apply_mask ? create_Bd_plus_mask_2d(resolution) : nothing
 
-    times = sol.t
+    # Extract snapshots using MethodOfLines solution interface
+    times = sol[t]
+    sol_array = sol[ρ(t, x, y)]
+
     snapshots = []
-    for i in eachindex(sol.t)
-        u = reshape(copy(sol.u[i]), resolution, resolution)
+    for i in eachindex(times)
+        u = copy(sol_array[i, :, :])
         if !isnothing(mask)
             apply_Bd_plus_mask!(u, mask)
         end
@@ -299,11 +304,16 @@ function solve_diffusion_mol_4d(u0::Array{Float64,4}, D::Float64, tspan::Tuple;
     # Create mask
     mask = apply_mask ? create_Bd_plus_mask_4d(resolution) : nothing
 
-    # Extract snapshots
-    times = sol.t
+    # Extract snapshots using MethodOfLines solution interface
+    # sol[ρ(t, x1, x2, x3, x4)] returns 5D array with time as first dimension
+    # (since t appears first in the variable signature)
+    times = sol[t]
+    sol_array = sol[ρ(t, x1, x2, x3, x4)]
+
     snapshots = []
-    for i in eachindex(sol.t)
-        u = reshape(copy(sol.u[i]), resolution, resolution, resolution, resolution)
+    for i in eachindex(times)
+        # Extract spatial slice at time index i (first dimension is time)
+        u = copy(sol_array[i, :, :, :, :])
         if !isnothing(mask)
             apply_Bd_plus_mask!(u, mask)
         end
@@ -360,29 +370,40 @@ function solve_advection_mol_4d(u0::Array{Float64,4}, v::Vector{Float64}, tspan:
                x3 ∈ DomainSets.Interval(0.0, 1.0),
                x4 ∈ DomainSets.Interval(0.0, 1.0)]
 
-    # Inflow boundary conditions (zero at inflow boundaries)
+    # Boundary conditions: Dirichlet at inflow + Neumann at outflow
+    # MethodOfLines docs suggest 2+ BCs per boundary for advection schemes
     bcs = [
-        ρ(0.0, x1, x2, x3, x4) ~ 0.0,
+        ρ(0.0, x1, x2, x3, x4) ~ 0.0,  # Initial condition
+        # Dirichlet (zero value) at x=0 boundaries (inflow)
         ρ(t, 0.0, x2, x3, x4) ~ 0.0,
         ρ(t, x1, 0.0, x3, x4) ~ 0.0,
         ρ(t, x1, x2, 0.0, x4) ~ 0.0,
         ρ(t, x1, x2, x3, 0.0) ~ 0.0,
+        # Neumann (zero gradient) at x=1 boundaries (outflow)
+        Dx1(ρ(t, 1.0, x2, x3, x4)) ~ 0.0,
+        Dx2(ρ(t, x1, 1.0, x3, x4)) ~ 0.0,
+        Dx3(ρ(t, x1, x2, 1.0, x4)) ~ 0.0,
+        Dx4(ρ(t, x1, x2, x3, 1.0)) ~ 0.0,
     ]
 
     @named pdesys = PDESystem(eq, bcs, domains, [t, x1, x2, x3, x4], [ρ(t, x1, x2, x3, x4)])
 
-    discretization = MOLFiniteDifference([x1 => dx, x2 => dx, x3 => dx, x4 => dx], t;
-                                          advection_scheme=UpwindScheme())
+    # Note: 4D advection requires Neumann BCs at outflow to avoid BoundsError
+    # See docs/known_issues.md for details on boundary condition requirements
+    discretization = MOLFiniteDifference([x1 => dx, x2 => dx, x3 => dx, x4 => dx], t)
     prob = discretize(pdesys, discretization)
 
     sol = solve(prob, solver; saveat=saveat)
 
     mask = apply_mask ? create_Bd_plus_mask_4d(resolution) : nothing
 
-    times = sol.t
+    # Extract snapshots using MethodOfLines solution interface
+    times = sol[t]
+    sol_array = sol[ρ(t, x1, x2, x3, x4)]
+
     snapshots = []
-    for i in eachindex(sol.t)
-        u = reshape(copy(sol.u[i]), resolution, resolution, resolution, resolution)
+    for i in eachindex(times)
+        u = copy(sol_array[i, :, :, :, :])
         if !isnothing(mask)
             apply_Bd_plus_mask!(u, mask)
         end

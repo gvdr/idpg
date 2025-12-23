@@ -46,12 +46,13 @@ IDPG extends Random Dot Product Graphs (RDPG) by making nodes stochastic. The ke
 
 ```
 output/
-├── basics/           # Basic IDPG demonstrations
-├── graphs/           # Graph structure visualizations
-├── validation/       # Formula validation plots
-├── mesoscale/        # Mesoscale network analysis
-├── applications/     # Application examples (ecology, etc.)
-└── dynamics/         # PDE evolution and dynamics
+├── basics/              # Basic IDPG demonstrations
+├── graphs/              # Graph structure visualizations
+├── validation/          # Formula validation plots
+├── mesoscale/           # Mesoscale network analysis
+├── applications/        # Application examples (ecology, 4D food webs)
+├── dynamics/            # PDE evolution (diffusion on B^d_+)
+└── temporal_foodweb/    # Temporal evolution under different PDE regimes
 ```
 
 ---
@@ -227,10 +228,34 @@ Explains WHY IDPG differs from ER:
 #### `ecological_foodweb.png`
 **Script**: `examples/ecological_example.jl`
 
-Ecological network (food web) generated with IDPG:
+Ecological network (food web) generated with IDPG in 2D:
 - Models predator-prey interactions
 - Bimodal intensity creates trophic levels
 - Shows how IDPG captures ecological network structure
+
+#### `ecological_4d_comparison.png`
+**Script**: `examples/ecological_4d_example.jl`
+
+Side-by-side comparison of 2D vs 4D latent spaces for food web modeling:
+- 4D allows more distinct trophic niches (each dimension = trophic level)
+- Uses hyperspherical coordinates to define guild positions
+- Shows food web graphs and interaction count heatmaps
+
+#### `ecological_4d_variability.png`
+**Script**: `examples/ecological_4d_example.jl`
+
+2x2 grid showing variability across 4 independent samples:
+- Demonstrates stochastic nature of IDPG sampling
+- Same intensity function produces different realized networks
+- Uses nearest-guild assignment (not k-means) for consistent labeling
+
+#### `ecological_4d_detailed.png` and `ecological_4d_filtered_web.png`
+**Script**: `examples/ecological_4d_example.jl`
+
+Detailed analysis of 4D food web structure:
+- Average interaction counts across 50 trials
+- Expected vs observed interaction matrices
+- Filtered food web showing only significant edges
 
 ---
 
@@ -248,6 +273,52 @@ PDE evolution of intensity function over time:
 
 ---
 
+### temporal_foodweb/
+
+#### `regime_comparison_heatmaps.png`
+**Script**: `examples/temporal_foodweb.jl`
+
+Food web structure at t=0 and t=1 under four PDE regimes:
+- **Static**: No evolution (baseline)
+- **Diffusion**: Niches spread (D=0.08)
+- **Advection**: Niches shift uniformly (v=[0.4, 0.3, -0.1, 0])
+- **Pursuit-Evasion**: Coupled dynamics (resources flee, consumers chase)
+
+#### `interaction_counts.png`
+**Script**: `examples/temporal_foodweb.jl`
+
+Total interaction count over time for each regime:
+- Static remains constant (~72 interactions)
+- Diffusion decreases as niches spread
+- Advection may increase or decrease depending on direction
+- Pursuit-Evasion shows dramatic decrease (~25 interactions at t=1)
+
+#### `final_foodwebs.png`
+**Script**: `examples/temporal_foodweb.jl`
+
+Food web graph structure at final time (t=1) for each regime:
+- Trophic layout: Producers at bottom, Apex at top
+- Edge width proportional to interaction frequency
+- Shows how different dynamics affect network topology
+
+#### `mean_trajectories.png`
+**Script**: `examples/temporal_foodweb.jl`
+
+Intensity mean position trajectories (projected to first 2 dimensions):
+- Circle = start, Star = end
+- Shows how resource (rho_G) and consumer (rho_R) means move
+- Pursuit-evasion shows diverging trajectories
+
+#### `pursuit_evasion_filmstrip.png`
+**Script**: `examples/temporal_foodweb.jl`
+
+Time-lapse of food web under pursuit-evasion dynamics:
+- 5 snapshots from t=0 to t=1
+- Shows progressive weakening of trophic links
+- Demonstrates co-evolutionary dynamics
+
+---
+
 ## Regenerating Plots
 
 To regenerate any plot, run the corresponding example script:
@@ -260,7 +331,9 @@ julia --project=. examples/product_case.jl
 julia --project=. examples/mesoscale_metrics.jl
 julia --project=. examples/idpg_vs_erdos_renyi.jl
 julia --project=. examples/ecological_example.jl
+julia --project=. examples/ecological_4d_example.jl
 julia --project=. examples/diffusion_example.jl
+julia --project=. examples/temporal_foodweb.jl
 ```
 
 ## Key Findings Summary

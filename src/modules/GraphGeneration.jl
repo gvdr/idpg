@@ -44,10 +44,61 @@ entities that exist only for a single interaction.
 # Fields
 - `sources::Vector{LatentPoint{d}}`: Green coordinates (source positions)
 - `targets::Vector{LatentPoint{d}}`: Red coordinates (target positions)
+
+Note: This structure only stores the coordinates used for connection probability.
+For full site information (both g and r for source and target), use FullEdgeCentricSample.
 """
 struct EdgeCentricSample{d}
     sources::Vector{LatentPoint{d}}
     targets::Vector{LatentPoint{d}}
+end
+
+"""
+    FullEdgeCentricSample{d}
+
+Edge-centric sample with full site information preserved.
+
+Each edge is formed between a source site (g_s, r_s) and a target site (g_t, r_t).
+The connection probability is g_s · r_t, but ALL coordinates are preserved:
+- r_s: the source's receiving propensity (available for clustering)
+- g_t: the target's sending propensity (available for clustering)
+
+This allows clustering entities using their full (g, r) signature rather than
+just the coordinate that contributed to the connection probability.
+
+# Fields
+- `source_sites::Vector{InteractionSite{d}}`: Full (g, r) for each source entity
+- `target_sites::Vector{InteractionSite{d}}`: Full (g, r) for each target entity
+"""
+struct FullEdgeCentricSample{d}
+    source_sites::Vector{InteractionSite{d}}
+    target_sites::Vector{InteractionSite{d}}
+end
+
+function Base.length(sample::FullEdgeCentricSample)
+    return length(sample.source_sites)
+end
+
+function Base.show(io::IO, sample::FullEdgeCentricSample{d}) where d
+    print(io, "FullEdgeCentricSample{" * string(d) * "} with " * string(length(sample)) * " edges (full site info)")
+end
+
+# Convenience accessors for FullEdgeCentricSample
+"""Get source g coordinates (the ones used for connection probability)"""
+source_g(sample::FullEdgeCentricSample) = [s.g for s in sample.source_sites]
+
+"""Get source r coordinates (not used for connection, but available for clustering)"""
+source_r(sample::FullEdgeCentricSample) = [s.r for s in sample.source_sites]
+
+"""Get target g coordinates (not used for connection, but available for clustering)"""
+target_g(sample::FullEdgeCentricSample) = [t.g for t in sample.target_sites]
+
+"""Get target r coordinates (the ones used for connection probability)"""
+target_r(sample::FullEdgeCentricSample) = [t.r for t in sample.target_sites]
+
+"""Convert to legacy EdgeCentricSample (loses r_source and g_target)"""
+function to_edge_centric(sample::FullEdgeCentricSample{d}) where d
+    return EdgeCentricSample{d}(source_g(sample), target_r(sample))
 end
 
 function Base.length(sample::EdgeCentricSample)
@@ -84,6 +135,46 @@ function generate_edge_centric(sites::Vector{InteractionSite{d}};
     end
 
     return EdgeCentricSample{d}(sources, targets)
+end
+
+"""
+    generate_edge_centric_full(sites::Vector{InteractionSite{d}}; rng=Random.default_rng()) -> FullEdgeCentricSample{d}
+
+Generate edges with full site information preserved.
+
+For each pair of sites (i, j), creates an edge from i to j with probability g_i · r_j.
+Unlike `generate_edge_centric`, this preserves ALL coordinates:
+- Source site: both g_i (used for connection) and r_i (available for clustering)
+- Target site: both r_j (used for connection) and g_j (available for clustering)
+
+This is equivalent to the node-centric model but returns edges with full site info
+rather than a graph structure.
+
+# Arguments
+- `sites`: Vector of InteractionSite samples from PPP
+- `rng`: Random number generator
+
+# Returns
+FullEdgeCentricSample with complete (g, r) for both source and target of each edge.
+"""
+function generate_edge_centric_full(sites::Vector{InteractionSite{d}};
+                                     rng::AbstractRNG=Random.default_rng()) where d
+    source_sites = InteractionSite{d}[]
+    target_sites = InteractionSite{d}[]
+
+    n = length(sites)
+    for i in 1:n
+        for j in 1:n
+            # Connection probability uses g_i (source's sending) and r_j (target's receiving)
+            p = connection_probability(sites[i].g, sites[j].r)
+            if rand(rng) < p
+                push!(source_sites, sites[i])  # Full (g, r) of source
+                push!(target_sites, sites[j])  # Full (g, r) of target
+            end
+        end
+    end
+
+    return FullEdgeCentricSample{d}(source_sites, target_sites)
 end
 
 """

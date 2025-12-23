@@ -251,6 +251,84 @@ function sample_from_grid(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Floa
 end
 
 """
+    sample_from_grid_full(ρ_G_values, ρ_R_values, grid; rng=Random.default_rng()) -> FullEdgeCentricSample{d}
+
+Sample interactions from grid-discretized intensities with full site information.
+
+Unlike `sample_from_grid`, this samples FULL sites for both source and target:
+- Source site: (g_s, r_s) where g_s ~ ρ_G, r_s ~ ρ_R
+- Target site: (g_t, r_t) where g_t ~ ρ_G, r_t ~ ρ_R
+- Connection probability: g_s · r_t
+
+This preserves all 4 coordinates per edge, allowing clustering based on full
+site characteristics rather than just the connection-relevant coordinates.
+
+# Arguments
+- `ρ_G_values`: Intensity values for source (resource) distribution
+- `ρ_R_values`: Intensity values for target (consumer) distribution
+- `grid`: The B^d_+ grid structure
+- `rng`: Random number generator
+
+# Returns
+FullEdgeCentricSample containing full (g, r) for both source and target sites.
+"""
+function sample_from_grid_full(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Float64},
+                                grid::BdPlusGrid{d}; rng::AbstractRNG=Random.default_rng()) where d
+    # Compute volume element
+    h_d = grid.h^d
+
+    # Compute total intensities
+    c_G = sum(ρ_G_values) * h_d
+    c_R = sum(ρ_R_values) * h_d
+
+    # Expected number of interaction opportunities
+    E_N = c_G * c_R
+
+    if E_N < 1e-10
+        return FullEdgeCentricSample{d}(InteractionSite{d}[], InteractionSite{d}[])
+    end
+
+    # Sample number of opportunities
+    N = rand(rng, Poisson(E_N))
+
+    if N == 0
+        return FullEdgeCentricSample{d}(InteractionSite{d}[], InteractionSite{d}[])
+    end
+
+    # Normalize to probability distributions
+    p_G = ρ_G_values ./ sum(ρ_G_values)
+    p_R = ρ_R_values ./ sum(ρ_R_values)
+
+    source_sites = InteractionSite{d}[]
+    target_sites = InteractionSite{d}[]
+
+    for _ in 1:N
+        # Sample FULL source site: g_s from ρ_G, r_s from ρ_R
+        g_s_idx = sample(rng, 1:length(grid.points), Weights(p_G))
+        r_s_idx = sample(rng, 1:length(grid.points), Weights(p_R))
+        g_s = grid.points[g_s_idx]
+        r_s = grid.points[r_s_idx]
+        source_site = InteractionSite{d}(g_s, r_s)
+
+        # Sample FULL target site: g_t from ρ_G, r_t from ρ_R
+        g_t_idx = sample(rng, 1:length(grid.points), Weights(p_G))
+        r_t_idx = sample(rng, 1:length(grid.points), Weights(p_R))
+        g_t = grid.points[g_t_idx]
+        r_t = grid.points[r_t_idx]
+        target_site = InteractionSite{d}(g_t, r_t)
+
+        # Connection probability uses g_source · r_target
+        p_connect = connection_probability(g_s, r_t)
+        if rand(rng) < p_connect
+            push!(source_sites, source_site)
+            push!(target_sites, target_site)
+        end
+    end
+
+    return FullEdgeCentricSample{d}(source_sites, target_sites)
+end
+
+"""
     initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_vals, scale) -> Vector{Float64}
 
 Initialize intensity values on a grid from a mixture distribution.
@@ -283,4 +361,80 @@ function initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_va
     end
 
     return ρ_values
+end
+
+# ============================================================================
+# Sampling from MixtureOfProductIntensities
+# ============================================================================
+
+"""
+    sample_site_from_mixture(mop::MixtureOfProductIntensities; rng=Random.default_rng()) -> InteractionSite
+
+Sample an InteractionSite from MixtureOfProductIntensities.
+
+Algorithm:
+1. Compute γ_m = c_{G,m} · c_{R,m} for each species
+2. Sample species m with probability γ_m / C
+3. Sample g from ρ_{G,m} and r from ρ_{R,m}
+"""
+function sample_site_from_mixture(mop::MixtureOfProductIntensities{d};
+                                   n_samples::Int=10000,
+                                   rng::AbstractRNG=Random.default_rng()) where d
+    _, g, r = sample_from_mixture(mop; n_samples=n_samples, rng=rng)
+    return InteractionSite{d}(g, r)
+end
+
+"""
+    sample_ppp_mixture(mop::MixtureOfProductIntensities; rng=Random.default_rng()) -> Vector{Tuple{Int, InteractionSite}}
+
+Sample from a Poisson Point Process with MixtureOfProductIntensities.
+
+Returns a vector of (species_index, site) tuples.
+
+Algorithm:
+1. Compute γ_m = c_{G,m} · c_{R,m} and C = Σ_m γ_m
+2. Sample N ~ Poisson(C)
+3. For each of N sites:
+   - Sample species m with probability γ_m / C
+   - Sample g from ρ_{G,m}, r from ρ_{R,m}
+"""
+function sample_ppp_mixture(mop::MixtureOfProductIntensities{d};
+                             n_samples::Int=10000,
+                             rng::AbstractRNG=Random.default_rng()) where d
+    # Compute species intensities γ_m
+    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
+    C = sum(γ)
+    probs = γ ./ C
+
+    # Sample total number of sites
+    N = rand(rng, Poisson(C))
+
+    # Sample each site
+    sites = Vector{Tuple{Int, InteractionSite{d}}}(undef, N)
+    for i in 1:N
+        # Sample species
+        m = sample(rng, 1:length(mop.species), Weights(probs))
+        species = mop.species[m]
+
+        # Sample (g, r) from the chosen species
+        g = sample_from_mixture(species.ρ_G; rng=rng)
+        r = sample_from_mixture(species.ρ_R; rng=rng)
+
+        sites[i] = (m, InteractionSite{d}(g, r))
+    end
+
+    return sites
+end
+
+"""
+    sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities; rng=Random.default_rng()) -> Vector{InteractionSite}
+
+Sample sites from MixtureOfProductIntensities PPP, discarding species labels.
+Convenience wrapper when species identity is not needed.
+"""
+function sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities{d};
+                                        n_samples::Int=10000,
+                                        rng::AbstractRNG=Random.default_rng()) where d
+    labeled = sample_ppp_mixture(mop; n_samples=n_samples, rng=rng)
+    return [site for (_, site) in labeled]
 end
