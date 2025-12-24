@@ -604,8 +604,8 @@ for (col, regime) in enumerate(regimes)
                 # Arrow: resource i → consumer j (energy flow direction)
                 add_edge!(food_web, i, j)
                 rate = percapita_matrix[i, j]
-                push!(edge_widths, 0.5 + 3.0 * rate)
-                push!(arrow_sizes, 8.0 + 12.0 * rate)
+                push!(edge_widths, 0.5 + 4.0 * rate^0.6)
+                push!(arrow_sizes, 6.0 + 14.0 * rate^0.6)
             end
         end
     end
@@ -711,8 +711,8 @@ for (col, snap_idx) in enumerate(1:n_snapshots)
                 # Arrow: resource i → consumer j (energy flow direction)
                 add_edge!(food_web, i, j)
                 rate = percapita_matrix[i, j]
-                push!(edge_widths, 0.5 + 3.0 * rate)
-                push!(arrow_sizes, 8.0 + 12.0 * rate)
+                push!(edge_widths, 0.5 + 4.0 * rate^0.6)
+                push!(arrow_sizes, 6.0 + 14.0 * rate^0.6)
             end
         end
     end
