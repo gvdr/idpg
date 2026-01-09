@@ -128,12 +128,9 @@ function sample_ppp_product(ρ::ProductIntensity{d};
     n_sites = rand(rng, Poisson(E_N))
 
     # Sample each site
-    sites = Vector{InteractionSite{d}}(undef, n_sites)
-    for i in 1:n_sites
-        g = sample_from_mixture(ρ.ρ_G; rng=rng)
-        r = sample_from_mixture(ρ.ρ_R; rng=rng)
-        sites[i] = InteractionSite{d}(g, r)
-    end
+    sites = [InteractionSite{d}(sample_from_mixture(ρ.ρ_G; rng=rng),
+                                 sample_from_mixture(ρ.ρ_R; rng=rng))
+             for _ in 1:n_sites]
 
     return sites
 end
@@ -418,19 +415,15 @@ function sample_ppp_mixture(mop::MixtureOfProductIntensities{d};
     # Sample total number of sites
     N = rand(rng, Poisson(C))
 
-    # Sample each site
-    sites = Vector{Tuple{Int, InteractionSite{d}}}(undef, N)
-    for i in 1:N
-        # Sample species
-        m = sample(rng, 1:length(mop.species), Weights(probs))
-        species = mop.species[m]
-
-        # Sample (g, r) from the chosen species
-        g = sample_from_mixture(species.ρ_G; rng=rng)
-        r = sample_from_mixture(species.ρ_R; rng=rng)
-
-        sites[i] = (m, InteractionSite{d}(g, r))
-    end
+    # Sample each site: choose species, then sample (g, r) from that species
+    sites = [
+        let m = sample(rng, 1:length(mop.species), Weights(probs))
+            species = mop.species[m]
+            (m, InteractionSite{d}(sample_from_mixture(species.ρ_G; rng=rng),
+                                   sample_from_mixture(species.ρ_R; rng=rng)))
+        end
+        for _ in 1:N
+    ]
 
     return sites
 end

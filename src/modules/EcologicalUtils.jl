@@ -264,14 +264,8 @@ This follows from the node-centric model where:
 - Each pair (from i, to j) connects with probability K_hat[i,j]
 """
 function compute_expected_guild_edges(K_hat::AbstractMatrix, π::AbstractVector, Λ::Real)
-    n = length(π)
-    E = zeros(n, n)
-    for i in 1:n
-        for j in 1:n
-            E[i, j] = Λ^2 * π[i] * π[j] * K_hat[i, j]
-        end
-    end
-    return E
+    # E[i,j] = Λ² * π[i] * π[j] * K_hat[i,j] = Λ² * (π * π') .* K_hat
+    return Λ^2 * (π * π') .* K_hat
 end
 
 """
@@ -288,14 +282,8 @@ Matrix K_hat where K_hat[i,j] is the dot product of guild i's source centroid
 with guild j's target centroid.
 """
 function compute_guild_affinity(M_G::AbstractMatrix, M_R::AbstractMatrix)
-    n = size(M_G, 1)
-    K_hat = zeros(n, n)
-    for i in 1:n
-        for j in 1:n
-            K_hat[i, j] = dot(M_G[i, :], M_R[j, :])
-        end
-    end
-    return K_hat
+    # K_hat[i,j] = M_G[i,:] ⋅ M_R[j,:] = (M_G * M_R')[i,j]
+    return M_G * M_R'
 end
 
 # ============================================================================
