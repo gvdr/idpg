@@ -325,3 +325,63 @@ function plot_sites_Bd_plus(sites::Vector{InteractionSite{d}}; kwargs...) where 
     return fig
 end
 
+# ============================================================================
+# Theme Utilities
+# ============================================================================
+
+"""
+    latex_figure_theme(; fontsize=18)
+
+Create a Makie theme suitable for LaTeX-rendered figures.
+
+Combines `theme_latexfonts()` with a specified fontsize for publication-quality plots.
+
+# Arguments
+- `fontsize`: Base font size for the theme (default: 18)
+
+# Returns
+A merged Theme that can be used with `with_theme()`.
+
+# Example
+```julia
+fig = with_theme(latex_figure_theme()) do
+    fig = Figure(size=(1200, 800))
+    ax = Axis(fig[1, 1], xlabel=L"\$g\$", ylabel=L"\$r\$")
+    # ... plotting code ...
+    fig
+end
+```
+"""
+function latex_figure_theme(; fontsize::Real=18)
+    return merge(theme_latexfonts(), Theme(fontsize=fontsize))
+end
+
+"""
+    with_latex_theme(f; fontsize=18)
+
+Execute a plotting function with LaTeX-style theme applied.
+
+Convenience wrapper around `with_theme(f, latex_figure_theme())`.
+
+# Arguments
+- `f`: Zero-argument function that creates and returns a Figure
+- `fontsize`: Base font size for the theme (default: 18)
+
+# Returns
+The Figure returned by `f`.
+
+# Example
+```julia
+fig = with_latex_theme() do
+    fig = Figure(size=(800, 600))
+    ax = Axis(fig[1, 1], title="My Plot")
+    lines!(ax, 1:10, rand(10))
+    fig
+end
+save("figure.png", fig, px_per_unit=2)
+```
+"""
+function with_latex_theme(f; fontsize::Real=18)
+    return with_theme(f, latex_figure_theme(; fontsize=fontsize))
+end
+

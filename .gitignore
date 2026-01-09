@@ -1,0 +1,5 @@
+# Documentation (kept locally, not in repo)
+docs/
+
+# OS
+.DS_Store

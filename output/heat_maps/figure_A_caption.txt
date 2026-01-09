@@ -1,0 +1,31 @@
+Figure A: Heat Map Anatomy (Product Intensity, d=1)
+
+Parameters:
+  g₀ = 0.3, r₀ = 0.7, κ = 20.0
+
+Charges:
+  c_G = ∫ρ_G dg = 1.0041
+  c_R = ∫ρ_R dr = 1.0041
+  Λ = c_G · c_R = 1.0081
+
+Centroids:
+  μ̃_G = 0.3379
+  μ̃_R = 0.6621
+
+Mean connection probability:
+  p̄ = μ̃_G · μ̃_R = 0.2237
+
+Heat scaling (product intensity):
+  H = Λ · H̄  (raw = charge × bound)
+  H⃗ = H̄ / 2  (edge = bound / 2)
+
+Total heats:
+  H̄(B,B) = 0.2255
+  H(Ω,Ω) = Λ² · p̄ = 0.2274  (= E[|E|] node-centric)
+  H⃗(Ω,Ω) = Λ · p̄ / 2 = 0.1128  (= E[L] edge-centric)
+
+Key formula:
+  h̄(g,r) = K(g,r) · ρ_G(g) · ρ_R(r)
+
+Under product intensity, raw, bound, and edge heats all have the same shape
+(just rescaled), so the 2D bound heat h̄(g,r) is a complete summary.

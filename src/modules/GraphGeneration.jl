@@ -138,17 +138,19 @@ function generate_edge_centric(sites::Vector{InteractionSite{d}};
 end
 
 """
-    generate_edge_centric_full(sites::Vector{InteractionSite{d}}; rng=Random.default_rng()) -> FullEdgeCentricSample{d}
+    generate_node_centric_full(sites::Vector{InteractionSite{d}}; rng=Random.default_rng()) -> FullEdgeCentricSample{d}
 
-Generate edges with full site information preserved.
+Generate edges using NODE-CENTRIC semantics (all N² pairs) but return full site information.
 
 For each pair of sites (i, j), creates an edge from i to j with probability g_i · r_j.
-Unlike `generate_edge_centric`, this preserves ALL coordinates:
+This preserves ALL coordinates:
 - Source site: both g_i (used for connection) and r_i (available for clustering)
 - Target site: both r_j (used for connection) and g_j (available for clustering)
 
-This is equivalent to the node-centric model but returns edges with full site info
-rather than a graph structure.
+This is the NODE-CENTRIC model (N sites → N² potential edges) but returns edges
+with full site info rather than a graph structure.
+
+Expected edges: E[|E|] = E[N]² · E[g·r]
 
 # Arguments
 - `sites`: Vector of InteractionSite samples from PPP
@@ -156,13 +158,16 @@ rather than a graph structure.
 
 # Returns
 FullEdgeCentricSample with complete (g, r) for both source and target of each edge.
+
+See also: `generate_edge_centric_full` for true edge-centric semantics (E[N]/2 opportunities).
 """
-function generate_edge_centric_full(sites::Vector{InteractionSite{d}};
+function generate_node_centric_full(sites::Vector{InteractionSite{d}};
                                      rng::AbstractRNG=Random.default_rng()) where d
     source_sites = InteractionSite{d}[]
     target_sites = InteractionSite{d}[]
 
     n = length(sites)
+    # NODE-CENTRIC: iterate over all N² pairs
     for i in 1:n
         for j in 1:n
             # Connection probability uses g_i (source's sending) and r_j (target's receiving)
@@ -175,6 +180,20 @@ function generate_edge_centric_full(sites::Vector{InteractionSite{d}};
     end
 
     return FullEdgeCentricSample{d}(source_sites, target_sites)
+end
+
+# Backwards compatibility alias (deprecated)
+"""
+    generate_edge_centric_full(sites; rng) -> FullEdgeCentricSample
+
+DEPRECATED: This function uses node-centric semantics (all N² pairs).
+Use `generate_node_centric_full` instead for clarity, or use grid-based
+edge-centric sampling functions for true edge-centric semantics.
+"""
+function generate_edge_centric_full(sites::Vector{InteractionSite{d}};
+                                     rng::AbstractRNG=Random.default_rng()) where d
+    @warn "generate_edge_centric_full uses node-centric N² pairing. Use generate_node_centric_full for clarity." maxlog=1
+    return generate_node_centric_full(sites; rng=rng)
 end
 
 """

@@ -137,4 +137,86 @@ using Random
         end
     end
 
+    @testset "ScaledProductEdgeIntensity" begin
+        rng = MersenneTwister(42)
+
+        # Create product intensity
+        ρ_G = BdPlusMixture([1.0], [[0.6, 0.4]], [10.0], 20.0)
+        ρ_R = BdPlusMixture([1.0], [[0.4, 0.6]], [10.0], 20.0)
+        ρ = ProductIntensity(ρ_G, ρ_R)
+
+        # Create symmetric edge intensity
+        ei = SymmetricEdgeIntensity(ρ; rng=rng)
+
+        # C_edge should be E[N]/2
+        E_N = total_intensity(ρ; rng=rng)
+        @test isapprox(ei.C_edge, E_N / 2, rtol=0.2)
+
+        # edge_intensity should return C_edge
+        @test edge_intensity(ei) == ei.C_edge
+    end
+
+    @testset "SymmetricEdgeIntensity C_edge formula" begin
+        rng = MersenneTwister(42)
+
+        # Create product intensity with known total intensity
+        ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 30.0)
+        ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 30.0)
+        ρ = ProductIntensity(ρ_G, ρ_R)
+
+        # Create edge intensity
+        ei = SymmetricEdgeIntensity(ρ; rng=rng)
+
+        # Verify C_edge = E[N]/2
+        stats = marginal_stats(ρ; rng=rng)
+        @test isapprox(ei.C_edge, stats.E_N / 2, rtol=0.15)
+    end
+
+    @testset "ScaledProductEdgeIntensity asymmetric" begin
+        rng = MersenneTwister(42)
+
+        # Create separate source and target intensities
+        ρ_source = ProductIntensity(
+            BdPlusMixture([1.0], [[0.7, 0.3]], [10.0], 25.0),
+            BdPlusMixture([1.0], [[0.3, 0.7]], [10.0], 25.0)
+        )
+        ρ_target = ProductIntensity(
+            BdPlusMixture([1.0], [[0.4, 0.6]], [10.0], 35.0),
+            BdPlusMixture([1.0], [[0.6, 0.4]], [10.0], 35.0)
+        )
+
+        # Create edge intensity
+        ei = ScaledProductEdgeIntensity(ρ_source, ρ_target; rng=rng)
+
+        # C_edge should be (C_source + C_target) / 2 for asymmetric case
+        C_S = total_intensity(ρ_source; rng=rng)
+        C_T = total_intensity(ρ_target; rng=rng)
+        @test isapprox(ei.C_edge, (C_S + C_T) / 2, rtol=0.2)
+    end
+
+    @testset "marginal_stats for edge intensity" begin
+        rng = MersenneTwister(42)
+
+        ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 25.0)
+        ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 25.0)
+        ρ = ProductIntensity(ρ_G, ρ_R)
+
+        ei = SymmetricEdgeIntensity(ρ; rng=rng)
+        stats = marginal_stats(ei; rng=rng)
+
+        # Check all expected fields exist
+        @test haskey(stats, :C_edge)
+        @test haskey(stats, :E_edges)
+        @test haskey(stats, :avg_conn_prob)
+
+        # C_edge should match
+        @test stats.C_edge == ei.C_edge
+
+        # E_edges = C_edge * avg_conn_prob
+        @test isapprox(stats.E_edges, stats.C_edge * stats.avg_conn_prob, rtol=0.01)
+
+        # avg_conn_prob should be in [0, 1]
+        @test 0 <= stats.avg_conn_prob <= 1
+    end
+
 end

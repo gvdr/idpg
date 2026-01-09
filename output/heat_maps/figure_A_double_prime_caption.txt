@@ -1,0 +1,17 @@
+Figure A'': Non-Product Intensity (4D Raw Heat)
+
+Site intensity: Two off-diagonal Gaussian blobs
+  ρ(g,r) = N((0.3, 0.7), σ²I) + N((0.7, 0.3), σ²I)
+  σ = 0.12
+
+This intensity is NOT a product: ρ(g,r) ≠ ρ^(g)(g) · ρ^(r)(r)
+
+The 4D raw heat h(g_s, r_s, g_t, r_t) = K(g_s, r_t) · ρ(g_s, r_s) · ρ(g_t, r_t)
+depends on all four coordinates. Panels (b,c,e,f) show slices at fixed (r_s, g_t):
+  - Different slices have DIFFERENT SHAPES
+  - This is because the "inactive" coordinates (r_s, g_t) don't factor out
+
+Under product intensity ρ(g,r) = ρ_G(g)·ρ_R(r), all slices would have the same shape
+(differing only by a scalar factor ρ_R(r_s)·ρ_G(g_t)), enabling the 2D bound heat summary.
+
+With non-product intensity, there is no 2D summary — the full 4D structure matters.

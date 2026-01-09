@@ -1,0 +1,16 @@
+Figure A': Asymmetric Source-Target Intensity (d=1)
+
+Two species with different source/target roles:
+- Species 1 (Prey-like): g_center=0.3, r_center=0.7
+  w_S=0.2 (rarely initiates), w_T=0.8 (often targeted)
+- Species 2 (Predator-like): g_center=0.7, r_center=0.3
+  w_S=0.8 (often initiates), w_T=0.2 (rarely targeted)
+
+Source marginal: ρ_S(g) = Σ_m w_{S,m} · ρ_{G,m}(g) — dominated by predators
+Target marginal: ρ_T(r) = Σ_m w_{T,m} · ρ_{R,m}(r) — dominated by prey
+
+Key insight:
+- Node-centric heat h(g,r) uses combined site intensity (symmetric treatment)
+- Edge-centric heat h_E(g,r) uses asymmetric source/target intensities
+- The ratio (panel d) shows where edge-centric over/under-weights relative to node-centric
+- Edge-centric concentrates at (predator g, prey r) = (0.7, 0.7) region
