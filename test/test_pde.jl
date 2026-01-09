@@ -120,13 +120,13 @@ using Random
         # Initial intensity function
         ρ_initial(p) = 1.0
 
+        # New API uses sample_times instead of dt/sample_interval
         results = evolve_and_track(
             ρ_initial, grid;
             pde_type=:diffusion,
             D=0.1,
-            dt=0.01,
             t_final=0.5,
-            sample_interval=0.1
+            sample_times=0.0:0.1:0.5
         )
 
         @test length(results.times) > 1
