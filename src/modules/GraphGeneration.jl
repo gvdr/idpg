@@ -159,7 +159,7 @@ Expected edges: E[|E|] = E[N]² · E[g·r]
 # Returns
 FullEdgeCentricSample with complete (g, r) for both source and target of each edge.
 
-See also: `generate_edge_centric_full` for true edge-centric semantics (E[N]/2 opportunities).
+See also: `sample_edge_centric` for true edge-centric semantics (E[N]/2 opportunities).
 """
 function generate_node_centric_full(sites::Vector{InteractionSite{d}};
                                      rng::AbstractRNG=Random.default_rng()) where d
@@ -180,20 +180,6 @@ function generate_node_centric_full(sites::Vector{InteractionSite{d}};
     end
 
     return FullEdgeCentricSample{d}(source_sites, target_sites)
-end
-
-# Backwards compatibility alias (deprecated)
-"""
-    generate_edge_centric_full(sites; rng) -> FullEdgeCentricSample
-
-DEPRECATED: This function uses node-centric semantics (all N² pairs).
-Use `generate_node_centric_full` instead for clarity, or use grid-based
-edge-centric sampling functions for true edge-centric semantics.
-"""
-function generate_edge_centric_full(sites::Vector{InteractionSite{d}};
-                                     rng::AbstractRNG=Random.default_rng()) where d
-    @warn "generate_edge_centric_full uses node-centric N² pairing. Use generate_node_centric_full for clarity." maxlog=1
-    return generate_node_centric_full(sites; rng=rng)
 end
 
 """

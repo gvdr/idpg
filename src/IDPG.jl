@@ -63,7 +63,7 @@ export sample_edge_centric, sample_edge_centric_ppp, sample_edge_centric_symmetr
 # Graph generation
 export EdgeCentricSample, FullEdgeCentricSample
 export generate_node_centric, generate_node_centric_full
-export generate_edge_centric, generate_edge_centric_full
+export generate_edge_centric
 export discretize_edge_centric, discretize_edge_centric_joint, discretize_with_weights
 export source_g, source_r, target_g, target_r, to_edge_centric
 
