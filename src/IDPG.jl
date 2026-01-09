@@ -10,17 +10,14 @@ using Clustering
 using CairoMakie
 using GraphMakie
 using SpecialFunctions: gamma
-using ModelingToolkit
-using MethodOfLines
 using OrdinaryDiffEq
-using DomainSets
+using Integrals
 
 # Include component files (not submodules, just code)
 # Note: Order matters - PDEEvolution before Sampling because Sampling uses BdPlusGrid
 include("modules/LatentSpace.jl")
 include("modules/Intensity.jl")
 include("modules/PDEEvolution.jl")
-include("modules/PDESciML.jl")
 include("modules/Sampling.jl")
 include("modules/GraphGeneration.jl")
 include("modules/Visualization.jl")
@@ -67,17 +64,14 @@ export generate_edge_centric
 export discretize_edge_centric, discretize_edge_centric_joint, discretize_with_weights
 export source_g, source_r, target_g, target_r, to_edge_centric
 
-# PDE evolution (hand-coded finite differences)
+# PDE evolution (OrdinaryDiffEq-based)
 export BdPlusGrid, create_Bd_plus_grid
-export evolve_diffusion!, evolve_advection!, evolve_reaction_diffusion!
-export evolve_advection_field!
+export evolve_diffusion, evolve_diffusion!
+export evolve_advection, evolve_advection!
+export evolve_advection_field, evolve_advection_field!
+export evolve_reaction_diffusion, evolve_reaction_diffusion!
 export evolve_and_track
-export compute_mean_position, gradient_component, get_neighbors
-
-# PDE evolution (SciML: MethodOfLines + OrdinaryDiffEq)
-export create_Bd_plus_mask_2d, create_Bd_plus_mask_4d, apply_Bd_plus_mask!
-export solve_diffusion_mol_2d, solve_advection_mol_2d
-export solve_diffusion_mol_4d, solve_advection_mol_4d
+export compute_mean_position, gradient_component, get_neighbors, laplacian_stencil
 
 # Visualization
 export plot_intensity_Bd_plus, plot_intensity_Bd_plus!

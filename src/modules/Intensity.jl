@@ -140,17 +140,40 @@ function (tvi::TimeVaryingIntensity{d})(g::AbstractVector, r::AbstractVector, t:
 end
 
 """
-    total_intensity(ρ::BdPlusMixture; n_samples=10000, rng=Random.default_rng()) -> Float64
+    total_intensity(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> Float64
 
-Compute the total intensity c = ∫ρ(x)dx via Monte Carlo integration.
+Compute the total intensity c = ∫ρ(x)dx over B^d_+.
+
+# Arguments
+- `ρ`: Intensity function (BdPlusMixture)
+- `method`: Integration method
+  - `:auto` (default): Use quadrature for d ≤ 4, Monte Carlo otherwise
+  - `:quadrature`: Use adaptive HCubature (deterministic, controllable accuracy)
+  - `:montecarlo`: Use Monte Carlo sampling (stochastic)
+- `reltol`: Relative tolerance for quadrature (default: 1e-6)
+- `n_samples`: Number of samples for Monte Carlo (default: 10000)
+- `rng`: Random number generator for Monte Carlo
 """
 function total_intensity(ρ::BdPlusMixture{d};
+                         method::Symbol=:auto,
+                         reltol::Float64=1e-6,
                          n_samples::Int=10000,
                          rng::AbstractRNG=Random.default_rng()) where d
-    # Monte Carlo integration over B^d_+
-    vol = Bd_plus_volume(d)
-    total = sum(ρ(uniform_Bd_plus_sample(d; rng=rng)) for _ in 1:n_samples)
-    return vol * total / n_samples
+    # Auto-select: quadrature for low d, Monte Carlo for high d
+    use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
+
+    if use_quadrature
+        # Adaptive cubature over [0,1]^d with indicator for B^d_+
+        f(x, p) = in_Bd_plus(x) ? ρ(x) : 0.0
+        prob = IntegralProblem(f, zeros(d), ones(d))
+        sol = solve(prob, HCubatureJL(); reltol=reltol)
+        return sol.u
+    else
+        # Monte Carlo integration over B^d_+
+        vol = Bd_plus_volume(d)
+        total = sum(ρ(uniform_Bd_plus_sample(d; rng=rng)) for _ in 1:n_samples)
+        return vol * total / n_samples
+    end
 end
 
 """
@@ -180,35 +203,62 @@ function marginal_total_intensity(ρ::ProductIntensity{d};
 end
 
 """
-    intensity_weighted_mean(ρ::BdPlusMixture; n_samples=10000, rng=Random.default_rng()) -> SVector
+    intensity_weighted_mean(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> SVector
 
-Compute the intensity-weighted mean position μ = ∫x·ρ(x)dx via Monte Carlo.
+Compute the intensity-weighted mean position μ = ∫x·ρ(x)dx over B^d_+.
+
+# Arguments
+- `ρ`: Intensity function (BdPlusMixture)
+- `method`: Integration method (:auto, :quadrature, or :montecarlo)
+- `reltol`: Relative tolerance for quadrature
+- `n_samples`: Number of samples for Monte Carlo
+- `rng`: Random number generator for Monte Carlo
 """
 function intensity_weighted_mean(ρ::BdPlusMixture{d};
+                                 method::Symbol=:auto,
+                                 reltol::Float64=1e-6,
                                  n_samples::Int=10000,
                                  rng::AbstractRNG=Random.default_rng()) where d
-    μ = zeros(d)
-    vol = Bd_plus_volume(d)
+    # Auto-select: quadrature for low d, Monte Carlo for high d
+    use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
 
-    for _ in 1:n_samples
-        x = uniform_Bd_plus_sample(d; rng=rng)
-        μ .+= x .* ρ(x)
+    if use_quadrature
+        # Integrate each component of x·ρ(x) separately
+        μ = zeros(d)
+        for k in 1:d
+            fₖ(x, p) = in_Bd_plus(x) ? x[k] * ρ(x) : 0.0
+            prob = IntegralProblem(fₖ, zeros(d), ones(d))
+            sol = solve(prob, HCubatureJL(); reltol=reltol)
+            μ[k] = sol.u
+        end
+        return SVector{d, Float64}(μ)
+    else
+        # Monte Carlo integration over B^d_+
+        μ = zeros(d)
+        vol = Bd_plus_volume(d)
+
+        for _ in 1:n_samples
+            x = uniform_Bd_plus_sample(d; rng=rng)
+            μ .+= x .* ρ(x)
+        end
+
+        return SVector{d, Float64}(vol .* μ ./ n_samples)
     end
-
-    return SVector{d, Float64}(vol .* μ ./ n_samples)
 end
 
 """
-    normalized_mean(ρ::BdPlusMixture; n_samples=10000, rng=Random.default_rng()) -> SVector
+    normalized_mean(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> SVector
 
 Compute the normalized mean μ̃ = μ/c where μ is the intensity-weighted mean
 and c is the total intensity.
 """
 function normalized_mean(ρ::BdPlusMixture{d};
+                         method::Symbol=:auto,
+                         reltol::Float64=1e-6,
                          n_samples::Int=10000,
                          rng::AbstractRNG=Random.default_rng()) where d
-    c = total_intensity(ρ; n_samples=n_samples, rng=rng)
-    μ = intensity_weighted_mean(ρ; n_samples=n_samples, rng=rng)
+    c = total_intensity(ρ; method=method, reltol=reltol, n_samples=n_samples, rng=rng)
+    μ = intensity_weighted_mean(ρ; method=method, reltol=reltol, n_samples=n_samples, rng=rng)
     return μ ./ c
 end
 
