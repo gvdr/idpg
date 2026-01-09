@@ -11,9 +11,13 @@ const LatentPoint{d} = SVector{d, Float64}
 
 Check if point lies in the non-negative unit ball B^d_+ (within tolerance).
 A point is in B^d_+ if all coordinates are non-negative and ||x|| <= 1.
+
+The tolerance applies only to the boundary (||x|| <= 1 + tol) to handle floating-point
+rounding when constructing points on the sphere. Negativity is checked strictly
+(xi >= 0) since negative coordinates are qualitative errors, not numerical noise.
 """
 function in_Bd_plus(x::AbstractVector; tol::Float64=1e-10)
-    return all(xi -> xi >= -tol, x) && norm(x) <= 1.0 + tol
+    return all(xi -> xi >= 0, x) && norm(x) <= 1.0 + tol
 end
 
 """
@@ -68,16 +72,19 @@ end
 """
     uniform_Bd_plus_sample(d::Int; rng=Random.default_rng()) -> LatentPoint{d}
 
-Sample uniformly from the non-negative unit ball B^d_+ using rejection sampling.
+Sample uniformly from the non-negative unit ball B^d_+.
+
+Uses the Barthe (2005) exponential method: if x ~ |N(0,I)| (folded normal) and
+e ~ Exp(1/2), then x / sqrt(e + ||x||²) is uniform on the unit ball. Taking
+absolute values of the Gaussians restricts to the positive orthant B^d_+.
+
+This is O(d) time with no rejection, unlike rejection sampling which becomes
+impractical for d > 10 (acceptance rate ~ (π/6)^(d/2) / Γ(d/2 + 1)).
 """
 function uniform_Bd_plus_sample(d::Int; rng::AbstractRNG=Random.default_rng())
-    while true
-        # Sample from [0, 1]^d
-        x = rand(rng, d)
-        if norm(x) <= 1.0
-            return SVector{d, Float64}(x)
-        end
-    end
+    x = abs.(randn(rng, d))           # folded normal: |N(0,1)| in each coordinate
+    e = 2 * randexp(rng)              # Exp(1/2) = 2 * Exp(1)
+    return SVector{d, Float64}(x ./ sqrt(e + sum(abs2, x)))
 end
 
 """

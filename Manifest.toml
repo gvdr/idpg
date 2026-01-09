@@ -2,7 +2,7 @@
 
 julia_version = "1.12.3"
 manifest_format = "2.0"
-project_hash = "361cebbe883b42df7e19f12e6238b7dd706c2c20"
+project_hash = "b9be3691814b8b2076b4d6a6a46048aca60ce795"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "8b2b045b22740e4be20654175cc38291d48539db"
@@ -1030,8 +1030,14 @@ git-tree-sha1 = "68c173f4f449de5b438ee67ed0c9c748dc31a2ec"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.28"
 
+[[deps.HypothesisTests]]
+deps = ["Combinatorics", "Distributions", "LinearAlgebra", "Printf", "Random", "Roots", "Statistics", "StatsAPI", "StatsBase", "StatsFuns"]
+git-tree-sha1 = "b67985bd11331ccef26109a6269dbaae01474a72"
+uuid = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
+version = "0.11.6"
+
 [[deps.IDPG]]
-deps = ["CairoMakie", "Clustering", "Distributions", "DomainSets", "GraphMakie", "Graphs", "JLD2", "LinearAlgebra", "MethodOfLines", "ModelingToolkit", "NetworkLayout", "OrdinaryDiffEq", "Random", "SpecialFunctions", "StaticArrays", "StatsBase"]
+deps = ["CairoMakie", "Clustering", "Distributions", "DomainSets", "GraphMakie", "Graphs", "JLD2", "LaTeXStrings", "LinearAlgebra", "MethodOfLines", "ModelingToolkit", "NetworkLayout", "OrdinaryDiffEq", "Random", "SpecialFunctions", "StaticArrays", "StatsBase"]
 path = "."
 uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 version = "0.1.0"
@@ -2354,6 +2360,28 @@ deps = ["Artifacts", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "58cdd8fb2201a6267e1db87ff148dd6c1dbd8ad8"
 uuid = "f50d1b31-88e8-58de-be2c-1cc44531875f"
 version = "0.5.1+0"
+
+[[deps.Roots]]
+deps = ["Accessors", "CommonSolve", "Printf"]
+git-tree-sha1 = "8a433b1ede5e9be9a7ba5b1cc6698daa8d718f1d"
+uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
+version = "2.2.10"
+
+    [deps.Roots.extensions]
+    RootsChainRulesCoreExt = "ChainRulesCore"
+    RootsForwardDiffExt = "ForwardDiff"
+    RootsIntervalRootFindingExt = "IntervalRootFinding"
+    RootsSymPyExt = "SymPy"
+    RootsSymPyPythonCallExt = "SymPyPythonCall"
+    RootsUnitfulExt = "Unitful"
+
+    [deps.Roots.weakdeps]
+    ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    IntervalRootFinding = "d2bf35a9-74e0-55ec-b149-d360ff49b807"
+    SymPy = "24249f21-da20-56a4-8eb1-6a02cf4ae2e6"
+    SymPyPythonCall = "bc8888f7-b21e-4b7c-a06a-5d9c9496438c"
+    Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [[deps.RoundingEmulator]]
 git-tree-sha1 = "40b9edad2e5287e05bd413a38f61a8ff55b9557b"
