@@ -80,11 +80,10 @@ function (bm::BdPlusMixture{d})(x::AbstractVector) where d
     end
 
     # Compute mixture of Gaussian kernels
-    p = 0.0
-    for (w, μ, κ) in zip(bm.weights, bm.means, bm.concentrations)
-        dist_sq = sum((x[i] - μ[i])^2 for i in 1:d)
-        p += w * exp(-κ * dist_sq)
-    end
+    p = sum(
+        w * exp(-κ * sum((x[i] - μ[i])^2 for i in 1:d))
+        for (w, μ, κ) in zip(bm.weights, bm.means, bm.concentrations)
+    )
 
     return bm.scale * p
 end
@@ -149,14 +148,8 @@ function total_intensity(ρ::BdPlusMixture{d};
                          n_samples::Int=10000,
                          rng::AbstractRNG=Random.default_rng()) where d
     # Monte Carlo integration over B^d_+
-    total = 0.0
     vol = Bd_plus_volume(d)
-
-    for _ in 1:n_samples
-        x = uniform_Bd_plus_sample(d; rng=rng)
-        total += ρ(x)
-    end
-
+    total = sum(ρ(uniform_Bd_plus_sample(d; rng=rng)) for _ in 1:n_samples)
     return vol * total / n_samples
 end
 
@@ -321,11 +314,7 @@ Evaluate MixtureOfProductIntensities at (g, r).
 ρ(g,r) = Σ_m ρ_{G,m}(g) · ρ_{R,m}(r)
 """
 function (mop::MixtureOfProductIntensities{d})(g::AbstractVector, r::AbstractVector) where d
-    total = 0.0
-    for species in mop.species
-        total += species.ρ_G(g) * species.ρ_R(r)
-    end
-    return total
+    return sum(species.ρ_G(g) * species.ρ_R(r) for species in mop.species)
 end
 
 """
@@ -351,13 +340,11 @@ Returns a vector of γ values.
 function species_intensities(mop::MixtureOfProductIntensities{d};
                               n_samples::Int=10000,
                               rng::AbstractRNG=Random.default_rng()) where d
-    γ = Vector{Float64}(undef, length(mop.species))
-    for (m, species) in enumerate(mop.species)
-        c_G = total_intensity(species.ρ_G; n_samples=n_samples, rng=rng)
-        c_R = total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
-        γ[m] = c_G * c_R
-    end
-    return γ
+    return [
+        total_intensity(species.ρ_G; n_samples=n_samples, rng=rng) *
+        total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
+        for species in mop.species
+    ]
 end
 
 """
@@ -742,7 +729,6 @@ The kernel K(g,r) = g · r is the standard IDPG connection probability kernel.
 Matrix of bound heat values h̄[i,j] = grid[i] * grid[j] * ρ_G[i] * ρ_R[j].
 """
 function compute_bound_heat_matrix(grid::AbstractVector, ρ_G::AbstractVector, ρ_R::AbstractVector; normalize::Bool=false)
-    n = length(grid)
     dx = length(grid) > 1 ? grid[2] - grid[1] : 1.0
 
     if normalize
@@ -755,14 +741,8 @@ function compute_bound_heat_matrix(grid::AbstractVector, ρ_G::AbstractVector, �
         ρ_R_use = ρ_R
     end
 
-    bound_heat = zeros(n, n)
-    for i in 1:n
-        for j in 1:n
-            K = grid[i] * grid[j]
-            bound_heat[i, j] = K * ρ_G_use[i] * ρ_R_use[j]
-        end
-    end
-    return bound_heat
+    # Outer product: h̄[i,j] = grid[i] * ρ_G[i] * grid[j] * ρ_R[j]
+    return (grid .* ρ_G_use) * (grid .* ρ_R_use)'
 end
 
 # ============================================================================

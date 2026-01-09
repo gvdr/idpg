@@ -27,13 +27,10 @@ Used for thinning algorithm.
 function estimate_max_intensity(ρ::AbstractIntensity{d};
                                 n_samples::Int=1000,
                                 rng::AbstractRNG=Random.default_rng()) where d
-    max_val = 0.0
-    for _ in 1:n_samples
-        g = uniform_Bd_plus_sample(d; rng=rng)
-        r = uniform_Bd_plus_sample(d; rng=rng)
-        val = ρ(g, r)
-        max_val = max(max_val, val)
-    end
+    max_val = maximum(
+        ρ(uniform_Bd_plus_sample(d; rng=rng), uniform_Bd_plus_sample(d; rng=rng))
+        for _ in 1:n_samples
+    )
     # Add safety margin
     return 1.5 * max_val
 end
@@ -363,17 +360,14 @@ Vector of intensity values at each grid point.
 """
 function initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_vals, scale) where d
     n_components = length(weights)
-    ρ_values = zeros(length(grid.points))
 
-    for (idx, point) in enumerate(grid.points)
-        val = 0.0
-        for k in 1:n_components
-            diff = Vector(point) .- means[k]
-            dist_sq = sum(diff.^2)
-            val += weights[k] * exp(-κ_vals[k] * dist_sq / 2)
-        end
-        ρ_values[idx] = scale * val
-    end
+    ρ_values = [
+        scale * sum(
+            weights[k] * exp(-κ_vals[k] * sum((Vector(point) .- means[k]).^2) / 2)
+            for k in 1:n_components
+        )
+        for point in grid.points
+    ]
 
     return ρ_values
 end

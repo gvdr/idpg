@@ -435,9 +435,6 @@ function compute_mean_position(ρ_values::Vector{Float64}, grid::BdPlusGrid{d}) 
         return SVector{d, Float64}(fill(0.5/sqrt(d), d))  # Center of B^d_+
     end
 
-    μ = zeros(d)
-    for (i, p) in enumerate(grid.points)
-        μ .+= ρ_values[i] .* p
-    end
+    μ = sum(ρ .* p for (ρ, p) in zip(ρ_values, grid.points))
     return SVector{d, Float64}(μ ./ total)
 end

@@ -78,21 +78,14 @@ Plot intensity on B^2_+ onto existing axis.
 """
 function plot_intensity_Bd_plus!(ax, ρ; resolution::Int=50, colormap=:viridis, kwargs...)
     h = 1.0 / (resolution - 1)
-    points_2d = Point2f[]
-    values = Float64[]
 
-    for i in 0:(resolution-1)
-        for j in 0:(resolution-1)
-            x = i * h
-            y = j * h
+    # Build (point, value) pairs for points inside B^2_+
+    pairs = [(Point2f(i * h, j * h), ρ(SVector{2, Float64}(i * h, j * h)))
+             for i in 0:(resolution-1) for j in 0:(resolution-1)
+             if (i * h)^2 + (j * h)^2 <= 1.0]
 
-            # Check if in B^2_+
-            if x^2 + y^2 <= 1.0
-                push!(points_2d, Point2f(x, y))
-                push!(values, ρ(SVector{2, Float64}(x, y)))
-            end
-        end
-    end
+    points_2d = first.(pairs)
+    values = last.(pairs)
 
     # Plot as scatter with color
     scatter!(ax, points_2d, color=values, colormap=colormap, markersize=8; kwargs...)
