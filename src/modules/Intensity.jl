@@ -148,11 +148,15 @@ Compute the total intensity c = ∫ρ(x)dx over B^d_+.
 - `ρ`: Intensity function (BdPlusMixture)
 - `method`: Integration method
   - `:auto` (default): Use quadrature for d ≤ 4, Monte Carlo otherwise
-  - `:quadrature`: Use adaptive HCubature (deterministic, controllable accuracy)
+  - `:quadrature`: Use adaptive HCubature with hyperspherical coordinates
   - `:montecarlo`: Use Monte Carlo sampling (stochastic)
 - `reltol`: Relative tolerance for quadrature (default: 1e-6)
 - `n_samples`: Number of samples for Monte Carlo (default: 10000)
 - `rng`: Random number generator for Monte Carlo
+
+# Implementation Note
+Quadrature uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
+This transforms the integral over B^d_+ into an integral over [0,1] × [0,π/2]^{d-1}.
 """
 function total_intensity(ρ::BdPlusMixture{d};
                          method::Symbol=:auto,
@@ -163,9 +167,32 @@ function total_intensity(ρ::BdPlusMixture{d};
     use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
 
     if use_quadrature
-        # Adaptive cubature over [0,1]^d with indicator for B^d_+
-        f(x, p) = in_Bd_plus(x) ? ρ(x) : 0.0
-        prob = IntegralProblem(f, zeros(d), ones(d))
+        # Use hyperspherical coordinates to avoid boundary discontinuity
+        # Domain: r ∈ [0,1], θᵢ ∈ [0,π/2] for i = 1,...,d-1
+
+        if d == 1
+            # 1D case: just integrate over [0,1]
+            f1d(x, p) = ρ([x[1]])
+            prob = IntegralProblem(f1d, [0.0], [1.0])
+            sol = solve(prob, HCubatureJL(); reltol=reltol)
+            return sol.u
+        end
+
+        # d ≥ 2: use hyperspherical coordinates
+        function integrand_c(u, p)
+            r = u[1]
+            r < 1e-12 && return 0.0  # avoid singularity at origin
+            θ = @view u[2:end]
+            x = hyperspherical_to_cartesian(r, θ)
+            J = hyperspherical_jacobian(r, θ)
+            return ρ(x) * J
+        end
+
+        # Bounds: r ∈ [0,1], θᵢ ∈ [0,π/2]
+        lower = zeros(d)
+        upper = vcat(1.0, fill(π/2, d-1))
+
+        prob = IntegralProblem(integrand_c, lower, upper)
         sol = solve(prob, HCubatureJL(); reltol=reltol)
         return sol.u
     else
@@ -213,6 +240,9 @@ Compute the intensity-weighted mean position μ = ∫x·ρ(x)dx over B^d_+.
 - `reltol`: Relative tolerance for quadrature
 - `n_samples`: Number of samples for Monte Carlo
 - `rng`: Random number generator for Monte Carlo
+
+# Implementation Note
+Quadrature uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
 """
 function intensity_weighted_mean(ρ::BdPlusMixture{d};
                                  method::Symbol=:auto,
@@ -223,14 +253,35 @@ function intensity_weighted_mean(ρ::BdPlusMixture{d};
     use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
 
     if use_quadrature
-        # Integrate each component of x·ρ(x) separately
+        # Use hyperspherical coordinates to avoid boundary discontinuity
+
+        if d == 1
+            # 1D case: integrate x·ρ(x) over [0,1]
+            f1d(x, p) = x[1] * ρ([x[1]])
+            prob = IntegralProblem(f1d, [0.0], [1.0])
+            sol = solve(prob, HCubatureJL(); reltol=reltol)
+            return SVector{1, Float64}(sol.u)
+        end
+
+        # d ≥ 2: integrate all components simultaneously using hyperspherical coords
         μ = zeros(d)
         for k in 1:d
-            fₖ(x, p) = in_Bd_plus(x) ? x[k] * ρ(x) : 0.0
-            prob = IntegralProblem(fₖ, zeros(d), ones(d))
+            function integrand_μk(u, p)
+                r = u[1]
+                r < 1e-12 && return 0.0
+                θ = @view u[2:end]
+                x = hyperspherical_to_cartesian(r, θ)
+                J = hyperspherical_jacobian(r, θ)
+                return x[k] * ρ(x) * J
+            end
+
+            lower = zeros(d)
+            upper = vcat(1.0, fill(π/2, d-1))
+            prob = IntegralProblem(integrand_μk, lower, upper)
             sol = solve(prob, HCubatureJL(); reltol=reltol)
             μ[k] = sol.u
         end
+
         return SVector{d, Float64}(μ)
     else
         # Monte Carlo integration over B^d_+

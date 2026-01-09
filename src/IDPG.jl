@@ -30,7 +30,7 @@ export LatentPoint
 export in_Bd_plus, on_Bd_plus_boundary, Bd_plus_outward_normal
 export project_to_Bd_plus, uniform_Bd_plus_sample, Bd_plus_volume
 export connection_probability, radial_coordinate, angular_coordinates
-export hyperspherical_to_cartesian, cartesian_to_hyperspherical
+export hyperspherical_to_cartesian, cartesian_to_hyperspherical, hyperspherical_jacobian
 export Bd_plus_from_hyperspherical, Bd_plus_to_hyperspherical
 
 # Intensity

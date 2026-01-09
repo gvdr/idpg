@@ -279,3 +279,45 @@ function Bd_plus_to_hyperspherical(x::AbstractVector{<:Real})
     @assert in_Bd_plus(x) "Point must be in B^d_+"
     return cartesian_to_hyperspherical(x)
 end
+
+"""
+    hyperspherical_jacobian(r, angles) -> Float64
+
+Compute the Jacobian determinant of the hyperspherical coordinate transformation.
+
+For d dimensions with coordinates (r, θ₁, ..., θ_{d-1}):
+    J = r^{d-1} · sin^{d-2}(θ₁) · sin^{d-3}(θ₂) · ... · sin(θ_{d-2})
+
+This is used for volume element transformation when integrating over B^d_+:
+    dV = J · dr · dθ₁ · ... · dθ_{d-1}
+
+# Arguments
+- `r`: radius (distance from origin)
+- `angles`: vector of d-1 angles
+
+# Returns
+- Jacobian determinant value
+
+# Example
+```julia
+# 2D (polar): J = r
+hyperspherical_jacobian(0.5, [π/4])  # = 0.5
+
+# 3D (spherical): J = r² sin(θ₁)
+hyperspherical_jacobian(0.5, [π/4, π/3])  # = 0.25 * sin(π/4) ≈ 0.177
+```
+"""
+function hyperspherical_jacobian(r::Real, angles::AbstractVector{<:Real})
+    d = length(angles) + 1
+
+    if d == 1
+        return 1.0
+    end
+
+    J = r^(d-1)
+    for i in 1:d-2
+        J *= sin(angles[i])^(d-1-i)
+    end
+
+    return J
+end

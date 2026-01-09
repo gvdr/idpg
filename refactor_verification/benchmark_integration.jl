@@ -1,5 +1,9 @@
-# Benchmark: Integrals.jl (HCubature) vs Monte Carlo
+# Benchmark: Integrals.jl (HCubature with hyperspherical coords) vs Monte Carlo
 # Compares accuracy and performance for total_intensity and intensity_weighted_mean
+#
+# Key insight: Direct integration over [0,1]^d with indicator function for B^d_+
+# is extremely slow due to the discontinuity at the boundary. Using hyperspherical
+# coordinates avoids this discontinuity entirely.
 
 using IDPG
 using Random
@@ -8,6 +12,7 @@ using Printf
 
 println("=" ^ 60)
 println("BENCHMARK: Integration Methods (Quadrature vs Monte Carlo)")
+println("Quadrature uses hyperspherical coordinates to avoid boundary discontinuity")
 println("=" ^ 60)
 
 # Create test intensity functions
