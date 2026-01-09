@@ -14,17 +14,9 @@ Create a mask for points inside B²₊ (non-negative unit disk).
 """
 function create_Bd_plus_mask_2d(resolution::Int)
     h = 1.0 / (resolution - 1)
-    mask = falses(resolution, resolution)
-    for i in 1:resolution
-        for j in 1:resolution
-            x = (i - 1) * h
-            y = (j - 1) * h
-            if x^2 + y^2 <= 1.0
-                mask[i, j] = true
-            end
-        end
-    end
-    return mask
+    xs = (0:(resolution-1)) .* h
+    # x² + y² ≤ 1 via outer sum of squared coordinates
+    return xs.^2 .+ (xs.^2)' .<= 1.0
 end
 
 """
@@ -34,23 +26,11 @@ Create a mask for points inside B⁴₊ (non-negative unit 4-ball).
 """
 function create_Bd_plus_mask_4d(resolution::Int)
     h = 1.0 / (resolution - 1)
-    mask = falses(resolution, resolution, resolution, resolution)
-    for i in 1:resolution
-        for j in 1:resolution
-            for k in 1:resolution
-                for l in 1:resolution
-                    x1 = (i - 1) * h
-                    x2 = (j - 1) * h
-                    x3 = (k - 1) * h
-                    x4 = (l - 1) * h
-                    if x1^2 + x2^2 + x3^2 + x4^2 <= 1.0
-                        mask[i, j, k, l] = true
-                    end
-                end
-            end
-        end
-    end
-    return mask
+    xs2 = ((0:(resolution-1)) .* h).^2  # squared grid values
+    # Sum of squares via broadcasting with reshape
+    r2 = reshape(xs2, :, 1, 1, 1) .+ reshape(xs2, 1, :, 1, 1) .+
+         reshape(xs2, 1, 1, :, 1) .+ reshape(xs2, 1, 1, 1, :)
+    return r2 .<= 1.0
 end
 
 """

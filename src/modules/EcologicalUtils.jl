@@ -484,12 +484,14 @@ Project each row of matrix M to B^d_+: clamp negatives to 0, scale to unit ball.
 - `scale`: Maximum norm for rows (default 0.99 to stay interior)
 """
 function project_rows_to_Bd_plus!(M::AbstractMatrix; scale::Real=0.99)
-    n = size(M, 1)
-    for i in 1:n
-        M[i, :] .= max.(M[i, :], 0.0)
-        norm_i = norm(M[i, :])
-        if norm_i > scale
-            M[i, :] .*= scale / norm_i
+    # Clamp all negatives to zero in one pass
+    M .= max.(M, 0.0)
+    # Compute all row norms at once
+    norms = sqrt.(sum(abs2, M, dims=2))
+    # Scale rows exceeding the bound
+    for i in axes(M, 1)
+        if norms[i] > scale
+            M[i, :] .*= scale / norms[i]
         end
     end
 end
