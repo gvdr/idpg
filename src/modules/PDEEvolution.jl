@@ -250,7 +250,7 @@ ODE solution object. Access solution at time t via sol(t).
 grid = create_Bd_plus_grid(2, 20)
 ρ₀ = [exp(-10 * norm(p - [0.5, 0.5])^2) for p in grid.points]
 sol = evolve_diffusion(ρ₀, grid, 0.01, (0.0, 1.0))
-ρ_final = sol[end]
+ρ_final = sol.u[end]
 ```
 """
 function evolve_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
@@ -282,7 +282,7 @@ function evolve_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                            boundary::Symbol=:absorbing) where d
     t_final = dt * n_steps
     sol = evolve_diffusion(ρ, grid, D, (0.0, t_final))
-    copyto!(ρ, max.(sol[end], 0.0))
+    copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
 
@@ -329,7 +329,7 @@ function evolve_advection!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                            boundary::Symbol=:absorbing) where d
     t_final = dt * n_steps
     sol = evolve_advection(ρ, grid, v⃗, (0.0, t_final))
-    copyto!(ρ, max.(sol[end], 0.0))
+    copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
 
@@ -382,7 +382,7 @@ function evolve_advection_field!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                                   boundary::Symbol=:absorbing) where d
     t_final = dt * n_steps
     sol = evolve_advection_field(ρ, grid, v⃗_field, (0.0, t_final))
-    copyto!(ρ, max.(sol[end], 0.0))
+    copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
 
@@ -436,7 +436,7 @@ function evolve_reaction_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                                     boundary::Symbol=:absorbing) where d
     t_final = dt * n_steps
     sol = evolve_reaction_diffusion(ρ, grid, D, f, (0.0, t_final))
-    copyto!(ρ, max.(sol[end], 0.0))
+    copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
 

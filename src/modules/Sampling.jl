@@ -183,7 +183,7 @@ function sample_ppp_temporal(ρ, t_start::Real, t_end::Real;
     while t < t_end
         # Sample from frozen intensity at time t
         # This is an approximation - proper implementation would use thinning over space-time
-        sites = sample_ppp(ρ.ρ; λ_max=nothing, rng=rng)
+        sites = sample_ppp(ρ.ρ; rng=rng)
         for site in sites
             if rand(rng) < dt  # Thin by dt to account for time slice
                 push!(results, (site, t))

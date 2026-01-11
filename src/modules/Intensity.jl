@@ -175,10 +175,10 @@ Solver is automatically selected based on dimension:
 - d ≥ 7: CubaVegas (Vegas Monte Carlo from Cuba library)
 """
 function total_intensity(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
-    # 1D case: direct integration
+    # 1D case: direct integration with scalar bounds
     if d == 1
-        f1d(x, p) = ρ([x[1]])
-        prob = IntegralProblem(f1d, [0.0], [1.0])
+        f1d(x, p) = ρ([x])
+        prob = IntegralProblem(f1d, (0.0, 1.0))
         sol = solve(prob, HCubatureJL(); reltol=reltol)
         return sol.u
     end
@@ -197,7 +197,7 @@ function total_intensity(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
     lower = zeros(d)
     upper = vcat(1.0, fill(π/2, d-1))
 
-    prob = IntegralProblem(integrand_c, lower, upper)
+    prob = IntegralProblem(integrand_c, (lower, upper))
     solver = _select_quadrature_solver(d)
 
     # HCubature uses reltol, Cuba solvers use defaults
@@ -249,10 +249,10 @@ Solver is automatically selected based on dimension:
 - d ≥ 7: CubaVegas (Vegas Monte Carlo from Cuba library)
 """
 function intensity_weighted_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
-    # 1D case: direct integration
+    # 1D case: direct integration with scalar bounds
     if d == 1
-        f1d(x, p) = x[1] * ρ([x[1]])
-        prob = IntegralProblem(f1d, [0.0], [1.0])
+        f1d(x, p) = x * ρ([x])
+        prob = IntegralProblem(f1d, (0.0, 1.0))
         sol = solve(prob, HCubatureJL(); reltol=reltol)
         return SVector{1, Float64}(sol.u)
     end
@@ -274,7 +274,7 @@ function intensity_weighted_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) whe
         # Bounds: r ∈ [0,1], θᵢ ∈ [0,π/2]
         lower = zeros(d)
         upper = vcat(1.0, fill(π/2, d-1))
-        prob = IntegralProblem(integrand_μk, lower, upper)
+        prob = IntegralProblem(integrand_μk, (lower, upper))
 
         # HCubature uses reltol, Cuba solvers use defaults
         if d <= 4
