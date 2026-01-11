@@ -629,27 +629,26 @@ struct ScaledProductEdgeIntensity{d, FS<:AbstractIntensity{d}, FT<:AbstractInten
 end
 
 """
-    ScaledProductEdgeIntensity(ρ_source, ρ_target; C_edge=nothing, reltol=1e-4)
+    ScaledProductEdgeIntensity(ρ_source, ρ_target; reltol=1e-4)
 
 Construct a ScaledProductEdgeIntensity from source and target intensities.
 
-If C_edge is not specified, uses C_edge = (C_source + C_target)/2, interpreting
-the total node-equivalents as coming from two separate populations.
+Computes C_edge = (C_source + C_target)/2, interpreting the total node-equivalents
+as coming from two separate populations.
 
 For symmetric case (same population), use SymmetricEdgeIntensity instead.
+
+For repeated construction with known C_edge, use the direct constructor:
+`ScaledProductEdgeIntensity{d}(ρ_source, ρ_target, C_edge)`
 """
 function ScaledProductEdgeIntensity(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d};
-                                     C_edge::Union{Nothing, Float64}=nothing,
                                      reltol::Float64=1e-4) where d
-    if isnothing(C_edge)
-        # For separate source/target populations:
-        # Total node-equivalents = C_source + C_target
-        # Each edge consumes 2 (one from each), so C_edge = (C_source + C_target)/2
-        C_S = total_intensity(ρ_source; reltol=reltol)
-        C_T = total_intensity(ρ_target; reltol=reltol)
-        C_edge = (C_S + C_T) / 2
-    end
-
+    # For separate source/target populations:
+    # Total node-equivalents = C_source + C_target
+    # Each edge consumes 2 (one from each), so C_edge = (C_source + C_target)/2
+    C_S = total_intensity(ρ_source; reltol=reltol)
+    C_T = total_intensity(ρ_target; reltol=reltol)
+    C_edge = (C_S + C_T) / 2
     return ScaledProductEdgeIntensity{d}(ρ_source, ρ_target, C_edge)
 end
 

@@ -56,32 +56,33 @@ function estimate_max_intensity(ρ::ProductIntensity{d};
 end
 
 """
-    sample_ppp(ρ::AbstractIntensity{d}; λ_max=nothing, rng=Random.default_rng()) -> Vector{InteractionSite{d}}
+    sample_ppp(ρ::AbstractIntensity{d}, λ_max::Float64; rng=Random.default_rng()) -> Vector{InteractionSite{d}}
 
 Sample from inhomogeneous PPP on Ω = B^d_+ × B^d_+ using thinning.
 
 # Algorithm
-1. Find λ_max = sup ρ(g,r) over Ω
+1. Use provided λ_max = sup ρ(g,r) over Ω
 2. Sample N ~ Poisson(λ_max · |Ω|) candidate points uniformly on Ω
 3. Accept each point (g,r) with probability ρ(g,r) / λ_max
 
 # Arguments
 - `ρ`: Intensity function
-- `λ_max`: Upper bound on intensity (estimated if not provided)
+- `λ_max`: Upper bound on intensity
 - `rng`: Random number generator
 
 # Returns
 Vector of accepted interaction sites.
+
+For repeated sampling, precompute λ_max once:
+```julia
+λ_max = estimate_max_intensity(ρ)
+for _ in 1:n_reps
+    sites = sample_ppp(ρ, λ_max; rng=rng)
+end
+```
 """
-function sample_ppp(ρ::AbstractIntensity{d};
-                    λ_max::Union{Nothing, Float64}=nothing,
+function sample_ppp(ρ::AbstractIntensity{d}, λ_max::Float64;
                     rng::AbstractRNG=Random.default_rng()) where d
-
-    # Estimate λ_max if not provided
-    if isnothing(λ_max)
-        λ_max = estimate_max_intensity(ρ; rng=rng)
-    end
-
     # Volume of Ω = B^d_+ × B^d_+
     vol_Bd_plus = Bd_plus_volume(d)
     vol_Ω = vol_Bd_plus^2
@@ -103,6 +104,19 @@ function sample_ppp(ρ::AbstractIntensity{d};
     end
 
     return accepted
+end
+
+"""
+    sample_ppp(ρ::AbstractIntensity{d}; rng=Random.default_rng()) -> Vector{InteractionSite{d}}
+
+Convenience method that estimates λ_max automatically.
+
+See `sample_ppp(ρ, λ_max; rng)` for the core method.
+"""
+function sample_ppp(ρ::AbstractIntensity{d};
+                    rng::AbstractRNG=Random.default_rng()) where d
+    λ_max = estimate_max_intensity(ρ; rng=rng)
+    return sample_ppp(ρ, λ_max; rng=rng)
 end
 
 """
@@ -568,52 +582,69 @@ function _sample_site_from_intensity(ρ::MixtureOfProductIntensities{d};
 end
 
 """
-    sample_edge_centric_ppp(ρ_source, ρ_target; C_edge=nothing, rng=Random.default_rng()) -> FullEdgeCentricSample
+    sample_edge_centric_ppp(ρ_source, ρ_target, C_edge; rng=Random.default_rng()) -> FullEdgeCentricSample
 
-Convenience function to sample edge-centric edges directly from source/target intensities.
+Sample edge-centric edges from source/target intensities with precomputed C_edge.
 
-Automatically constructs a ScaledProductEdgeIntensity and samples from it.
-
-For repeated sampling, precompute C_edge and pass it:
+For repeated sampling, precompute C_edge once:
 ```julia
 C_S = total_intensity(ρ_source)
 C_T = total_intensity(ρ_target)
 C_edge = (C_S + C_T) / 2
 for _ in 1:n_reps
-    edges = sample_edge_centric_ppp(ρ_source, ρ_target; C_edge=C_edge, rng=rng)
+    edges = sample_edge_centric_ppp(ρ_source, ρ_target, C_edge; rng=rng)
 end
 ```
 """
-function sample_edge_centric_ppp(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d};
-                                  C_edge::Union{Nothing, Float64}=nothing,
+function sample_edge_centric_ppp(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d},
+                                  C_edge::Float64;
                                   rng::AbstractRNG=Random.default_rng()) where d
-    ei = ScaledProductEdgeIntensity(ρ_source, ρ_target; C_edge=C_edge)
+    ei = ScaledProductEdgeIntensity{d}(ρ_source, ρ_target, C_edge)
     return sample_edge_centric(ei; rng=rng)
 end
 
 """
-    sample_edge_centric_symmetric(ρ; C_edge=nothing, rng=Random.default_rng()) -> FullEdgeCentricSample
+    sample_edge_centric_ppp(ρ_source, ρ_target; rng=Random.default_rng()) -> FullEdgeCentricSample
 
-Sample edge-centric edges with symmetric source/target distribution.
+Convenience method that computes C_edge automatically.
 
-Both source and target are sampled from the same intensity ρ.
+See `sample_edge_centric_ppp(ρ_source, ρ_target, C_edge; rng)` for the core method.
+"""
+function sample_edge_centric_ppp(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d};
+                                  rng::AbstractRNG=Random.default_rng()) where d
+    ei = ScaledProductEdgeIntensity(ρ_source, ρ_target)
+    return sample_edge_centric(ei; rng=rng)
+end
 
-For repeated sampling, precompute C_edge and pass it:
+"""
+    sample_edge_centric_symmetric(ρ, C_edge; rng=Random.default_rng()) -> FullEdgeCentricSample
+
+Sample edge-centric edges with symmetric source/target distribution and precomputed C_edge.
+
+For repeated sampling, precompute C_edge once:
 ```julia
 C = total_intensity(ρ)
 C_edge = C / 2
 for _ in 1:n_reps
-    edges = sample_edge_centric_symmetric(ρ; C_edge=C_edge, rng=rng)
+    edges = sample_edge_centric_symmetric(ρ, C_edge; rng=rng)
 end
 ```
 """
-function sample_edge_centric_symmetric(ρ::AbstractIntensity{d};
-                                        C_edge::Union{Nothing, Float64}=nothing,
+function sample_edge_centric_symmetric(ρ::AbstractIntensity{d}, C_edge::Float64;
                                         rng::AbstractRNG=Random.default_rng()) where d
-    if isnothing(C_edge)
-        ei = SymmetricEdgeIntensity(ρ)
-    else
-        ei = ScaledProductEdgeIntensity{d}(ρ, ρ, C_edge)
-    end
+    ei = ScaledProductEdgeIntensity{d}(ρ, ρ, C_edge)
+    return sample_edge_centric(ei; rng=rng)
+end
+
+"""
+    sample_edge_centric_symmetric(ρ; rng=Random.default_rng()) -> FullEdgeCentricSample
+
+Convenience method that computes C_edge automatically.
+
+See `sample_edge_centric_symmetric(ρ, C_edge; rng)` for the core method.
+"""
+function sample_edge_centric_symmetric(ρ::AbstractIntensity{d};
+                                        rng::AbstractRNG=Random.default_rng()) where d
+    ei = SymmetricEdgeIntensity(ρ)
     return sample_edge_centric(ei; rng=rng)
 end
