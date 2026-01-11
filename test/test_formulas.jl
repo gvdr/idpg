@@ -75,13 +75,11 @@ using LinearAlgebra
     end
 
     @testset "Marginal stats computation" begin
-        rng = MersenneTwister(42)
-
         ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [5.0], 5.0)
         ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [5.0], 5.0)
         ρ = ProductIntensity(ρ_G, ρ_R)
 
-        stats = marginal_stats(ρ; n_samples=5000, rng=rng)
+        stats = marginal_stats(ρ)
 
         # E_N should be positive
         @test stats.E_N > 0

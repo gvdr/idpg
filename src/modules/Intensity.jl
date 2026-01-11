@@ -140,181 +140,168 @@ function (tvi::TimeVaryingIntensity{d})(g::AbstractVector, r::AbstractVector, t:
 end
 
 """
-    total_intensity(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> Float64
+    _select_quadrature_solver(d::Int)
+
+Select the best quadrature solver based on dimension.
+Based on benchmarks (January 2026):
+- d ≤ 4: HCubatureJL (fast adaptive cubature)
+- d = 5-6: CubaDivonne (good balance of speed and accuracy)
+- d ≥ 7: CubaVegas (most robust for high dimensions)
+"""
+function _select_quadrature_solver(d::Int)
+    if d <= 4
+        return HCubatureJL()
+    elseif d <= 6
+        return CubaDivonne()
+    else
+        return CubaVegas()
+    end
+end
+
+"""
+    total_intensity(ρ::BdPlusMixture; reltol=1e-4) -> Float64
 
 Compute the total intensity c = ∫ρ(x)dx over B^d_+.
 
 # Arguments
 - `ρ`: Intensity function (BdPlusMixture)
-- `method`: Integration method
-  - `:auto` (default): Use quadrature for d ≤ 4, Monte Carlo otherwise
-  - `:quadrature`: Use adaptive HCubature with hyperspherical coordinates
-  - `:montecarlo`: Use Monte Carlo sampling (stochastic)
-- `reltol`: Relative tolerance for quadrature (default: 1e-6)
-- `n_samples`: Number of samples for Monte Carlo (default: 10000)
-- `rng`: Random number generator for Monte Carlo
+- `reltol`: Relative tolerance for quadrature (default: 1e-4)
 
 # Implementation Note
-Quadrature uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
-This transforms the integral over B^d_+ into an integral over [0,1] × [0,π/2]^{d-1}.
+Uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
+Solver is automatically selected based on dimension:
+- d ≤ 4: HCubatureJL (adaptive cubature)
+- d = 5-6: CubaDivonne (Cuba library)
+- d ≥ 7: CubaVegas (Vegas Monte Carlo from Cuba library)
 """
-function total_intensity(ρ::BdPlusMixture{d};
-                         method::Symbol=:auto,
-                         reltol::Float64=1e-6,
-                         n_samples::Int=10000,
-                         rng::AbstractRNG=Random.default_rng()) where d
-    # Auto-select: quadrature for low d, Monte Carlo for high d
-    use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
-
-    if use_quadrature
-        # Use hyperspherical coordinates to avoid boundary discontinuity
-        # Domain: r ∈ [0,1], θᵢ ∈ [0,π/2] for i = 1,...,d-1
-
-        if d == 1
-            # 1D case: just integrate over [0,1]
-            f1d(x, p) = ρ([x[1]])
-            prob = IntegralProblem(f1d, [0.0], [1.0])
-            sol = solve(prob, HCubatureJL(); reltol=reltol)
-            return sol.u
-        end
-
-        # d ≥ 2: use hyperspherical coordinates
-        function integrand_c(u, p)
-            r = u[1]
-            r < 1e-12 && return 0.0  # avoid singularity at origin
-            θ = @view u[2:end]
-            x = hyperspherical_to_cartesian(r, θ)
-            J = hyperspherical_jacobian(r, θ)
-            return ρ(x) * J
-        end
-
-        # Bounds: r ∈ [0,1], θᵢ ∈ [0,π/2]
-        lower = zeros(d)
-        upper = vcat(1.0, fill(π/2, d-1))
-
-        prob = IntegralProblem(integrand_c, lower, upper)
+function total_intensity(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
+    # 1D case: direct integration
+    if d == 1
+        f1d(x, p) = ρ([x[1]])
+        prob = IntegralProblem(f1d, [0.0], [1.0])
         sol = solve(prob, HCubatureJL(); reltol=reltol)
         return sol.u
-    else
-        # Monte Carlo integration over B^d_+
-        vol = Bd_plus_volume(d)
-        total = sum(ρ(uniform_Bd_plus_sample(d; rng=rng)) for _ in 1:n_samples)
-        return vol * total / n_samples
     end
+
+    # d ≥ 2: use hyperspherical coordinates to avoid boundary discontinuity
+    function integrand_c(u, p)
+        r = u[1]
+        r < 1e-12 && return 0.0  # avoid singularity at origin
+        θ = @view u[2:end]
+        x = hyperspherical_to_cartesian(r, θ)
+        J = hyperspherical_jacobian(r, θ)
+        return ρ(x) * J
+    end
+
+    # Bounds: r ∈ [0,1], θᵢ ∈ [0,π/2]
+    lower = zeros(d)
+    upper = vcat(1.0, fill(π/2, d-1))
+
+    prob = IntegralProblem(integrand_c, lower, upper)
+    solver = _select_quadrature_solver(d)
+
+    # HCubature uses reltol, Cuba solvers use defaults
+    if d <= 4
+        sol = solve(prob, solver; reltol=reltol)
+    else
+        sol = solve(prob, solver)
+    end
+
+    return sol.u
 end
 
 """
-    total_intensity(ρ::ProductIntensity; n_samples=10000, rng=Random.default_rng()) -> Float64
+    total_intensity(ρ::ProductIntensity; reltol=1e-4) -> Float64
 
 Compute the total intensity C = c_G × c_R = E[N] for a product intensity.
 """
-function total_intensity(ρ::ProductIntensity{d};
-                          n_samples::Int=10000,
-                          rng::AbstractRNG=Random.default_rng()) where d
-    c_G, c_R = marginal_total_intensity(ρ; n_samples=n_samples, rng=rng)
+function total_intensity(ρ::ProductIntensity{d}; reltol::Float64=1e-4) where d
+    c_G, c_R = marginal_total_intensity(ρ; reltol=reltol)
     return c_G * c_R
 end
 
 """
-    marginal_total_intensity(ρ::ProductIntensity; n_samples=10000) -> Tuple{Float64, Float64}
+    marginal_total_intensity(ρ::ProductIntensity; reltol=1e-4) -> Tuple{Float64, Float64}
 
 Compute the marginal total intensities c_G = ∫ρ_G(g)dg and c_R = ∫ρ_R(r)dr.
 Returns (c_G, c_R).
 """
-function marginal_total_intensity(ρ::ProductIntensity{d};
-                                  n_samples::Int=10000,
-                                  rng::AbstractRNG=Random.default_rng()) where d
-    c_G = total_intensity(ρ.ρ_G; n_samples=n_samples, rng=rng)
-    c_R = total_intensity(ρ.ρ_R; n_samples=n_samples, rng=rng)
+function marginal_total_intensity(ρ::ProductIntensity{d}; reltol::Float64=1e-4) where d
+    c_G = total_intensity(ρ.ρ_G; reltol=reltol)
+    c_R = total_intensity(ρ.ρ_R; reltol=reltol)
     return (c_G, c_R)
 end
 
 """
-    intensity_weighted_mean(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> SVector
+    intensity_weighted_mean(ρ::BdPlusMixture; reltol=1e-4) -> SVector
 
 Compute the intensity-weighted mean position μ = ∫x·ρ(x)dx over B^d_+.
 
 # Arguments
 - `ρ`: Intensity function (BdPlusMixture)
-- `method`: Integration method (:auto, :quadrature, or :montecarlo)
-- `reltol`: Relative tolerance for quadrature
-- `n_samples`: Number of samples for Monte Carlo
-- `rng`: Random number generator for Monte Carlo
+- `reltol`: Relative tolerance for quadrature (used for d ≤ 4)
 
 # Implementation Note
-Quadrature uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
+Uses hyperspherical coordinates to avoid the discontinuity at the B^d_+ boundary.
+Solver is automatically selected based on dimension:
+- d ≤ 4: HCubatureJL (adaptive cubature)
+- d = 5-6: CubaDivonne (Cuba library)
+- d ≥ 7: CubaVegas (Vegas Monte Carlo from Cuba library)
 """
-function intensity_weighted_mean(ρ::BdPlusMixture{d};
-                                 method::Symbol=:auto,
-                                 reltol::Float64=1e-6,
-                                 n_samples::Int=10000,
-                                 rng::AbstractRNG=Random.default_rng()) where d
-    # Auto-select: quadrature for low d, Monte Carlo for high d
-    use_quadrature = (method == :quadrature) || (method == :auto && d <= 4)
-
-    if use_quadrature
-        # Use hyperspherical coordinates to avoid boundary discontinuity
-
-        if d == 1
-            # 1D case: integrate x·ρ(x) over [0,1]
-            f1d(x, p) = x[1] * ρ([x[1]])
-            prob = IntegralProblem(f1d, [0.0], [1.0])
-            sol = solve(prob, HCubatureJL(); reltol=reltol)
-            return SVector{1, Float64}(sol.u)
-        end
-
-        # d ≥ 2: integrate all components simultaneously using hyperspherical coords
-        μ = zeros(d)
-        for k in 1:d
-            function integrand_μk(u, p)
-                r = u[1]
-                r < 1e-12 && return 0.0
-                θ = @view u[2:end]
-                x = hyperspherical_to_cartesian(r, θ)
-                J = hyperspherical_jacobian(r, θ)
-                return x[k] * ρ(x) * J
-            end
-
-            lower = zeros(d)
-            upper = vcat(1.0, fill(π/2, d-1))
-            prob = IntegralProblem(integrand_μk, lower, upper)
-            sol = solve(prob, HCubatureJL(); reltol=reltol)
-            μ[k] = sol.u
-        end
-
-        return SVector{d, Float64}(μ)
-    else
-        # Monte Carlo integration over B^d_+
-        μ = zeros(d)
-        vol = Bd_plus_volume(d)
-
-        for _ in 1:n_samples
-            x = uniform_Bd_plus_sample(d; rng=rng)
-            μ .+= x .* ρ(x)
-        end
-
-        return SVector{d, Float64}(vol .* μ ./ n_samples)
+function intensity_weighted_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
+    # 1D case: direct integration
+    if d == 1
+        f1d(x, p) = x[1] * ρ([x[1]])
+        prob = IntegralProblem(f1d, [0.0], [1.0])
+        sol = solve(prob, HCubatureJL(); reltol=reltol)
+        return SVector{1, Float64}(sol.u)
     end
+
+    # d ≥ 2: integrate each component using hyperspherical coords
+    μ = zeros(d)
+    solver = _select_quadrature_solver(d)
+
+    for k in 1:d
+        function integrand_μk(u, p)
+            r = u[1]
+            r < 1e-12 && return 0.0  # avoid singularity at origin
+            θ = @view u[2:end]
+            x = hyperspherical_to_cartesian(r, θ)
+            J = hyperspherical_jacobian(r, θ)
+            return x[k] * ρ(x) * J
+        end
+
+        # Bounds: r ∈ [0,1], θᵢ ∈ [0,π/2]
+        lower = zeros(d)
+        upper = vcat(1.0, fill(π/2, d-1))
+        prob = IntegralProblem(integrand_μk, lower, upper)
+
+        # HCubature uses reltol, Cuba solvers use defaults
+        if d <= 4
+            sol = solve(prob, solver; reltol=reltol)
+        else
+            sol = solve(prob, solver)
+        end
+        μ[k] = sol.u
+    end
+
+    return SVector{d, Float64}(μ)
 end
 
 """
-    normalized_mean(ρ::BdPlusMixture; method=:auto, reltol=1e-6, n_samples=10000, rng=Random.default_rng()) -> SVector
+    normalized_mean(ρ::BdPlusMixture; reltol=1e-4) -> SVector
 
 Compute the normalized mean μ̃ = μ/c where μ is the intensity-weighted mean
 and c is the total intensity.
 """
-function normalized_mean(ρ::BdPlusMixture{d};
-                         method::Symbol=:auto,
-                         reltol::Float64=1e-6,
-                         n_samples::Int=10000,
-                         rng::AbstractRNG=Random.default_rng()) where d
-    c = total_intensity(ρ; method=method, reltol=reltol, n_samples=n_samples, rng=rng)
-    μ = intensity_weighted_mean(ρ; method=method, reltol=reltol, n_samples=n_samples, rng=rng)
+function normalized_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
+    c = total_intensity(ρ; reltol=reltol)
+    μ = intensity_weighted_mean(ρ; reltol=reltol)
     return μ ./ c
 end
 
 """
-    marginal_stats(ρ::ProductIntensity; n_samples=10000, rng=Random.default_rng())
+    marginal_stats(ρ::ProductIntensity; reltol=1e-4)
 
 Compute all marginal statistics for a product intensity:
 - c_G, c_R: marginal total intensities
@@ -329,14 +316,12 @@ Each edge opportunity "consumes" two node-equivalents (one source, one target).
 
 Returns a named tuple with all quantities.
 """
-function marginal_stats(ρ::ProductIntensity{d};
-                        n_samples::Int=10000,
-                        rng::AbstractRNG=Random.default_rng()) where d
-    c_G = total_intensity(ρ.ρ_G; n_samples=n_samples, rng=rng)
-    c_R = total_intensity(ρ.ρ_R; n_samples=n_samples, rng=rng)
+function marginal_stats(ρ::ProductIntensity{d}; reltol::Float64=1e-4) where d
+    c_G = total_intensity(ρ.ρ_G; reltol=reltol)
+    c_R = total_intensity(ρ.ρ_R; reltol=reltol)
 
-    μ_G = intensity_weighted_mean(ρ.ρ_G; n_samples=n_samples, rng=rng)
-    μ_R = intensity_weighted_mean(ρ.ρ_R; n_samples=n_samples, rng=rng)
+    μ_G = intensity_weighted_mean(ρ.ρ_G; reltol=reltol)
+    μ_R = intensity_weighted_mean(ρ.ρ_R; reltol=reltol)
 
     μ̃_G = μ_G ./ c_G
     μ̃_R = μ_R ./ c_R
@@ -433,48 +418,42 @@ Return the number of species in the mixture.
 n_species(mop::MixtureOfProductIntensities) = length(mop.species)
 
 """
-    species_intensities(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+    species_intensities(mop::MixtureOfProductIntensities; reltol=1e-4)
 
 Compute species-specific total intensities γ_m = c_{G,m} · c_{R,m}.
 Returns a vector of γ values.
 """
-function species_intensities(mop::MixtureOfProductIntensities{d};
-                              n_samples::Int=10000,
-                              rng::AbstractRNG=Random.default_rng()) where d
+function species_intensities(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-4) where d
     return [
-        total_intensity(species.ρ_G; n_samples=n_samples, rng=rng) *
-        total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
+        total_intensity(species.ρ_G; reltol=reltol) *
+        total_intensity(species.ρ_R; reltol=reltol)
         for species in mop.species
     ]
 end
 
 """
-    total_intensity(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+    total_intensity(mop::MixtureOfProductIntensities; reltol=1e-4)
 
 Compute total intensity C = Σ_m γ_m = Σ_m c_{G,m} · c_{R,m}.
 """
-function total_intensity(mop::MixtureOfProductIntensities{d};
-                          n_samples::Int=10000,
-                          rng::AbstractRNG=Random.default_rng()) where d
-    return sum(species_intensities(mop; n_samples=n_samples, rng=rng))
+function total_intensity(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-4) where d
+    return sum(species_intensities(mop; reltol=reltol))
 end
 
 """
-    species_probabilities(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+    species_probabilities(mop::MixtureOfProductIntensities; reltol=1e-4)
 
 Compute sampling probabilities for each species: P(species=m) = γ_m / C.
 Returns a vector of probabilities that sum to 1.
 """
-function species_probabilities(mop::MixtureOfProductIntensities{d};
-                                n_samples::Int=10000,
-                                rng::AbstractRNG=Random.default_rng()) where d
-    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
+function species_probabilities(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-4) where d
+    γ = species_intensities(mop; reltol=reltol)
     C = sum(γ)
     return γ ./ C
 end
 
 """
-    marginal_stats(mop::MixtureOfProductIntensities; n_samples=10000, rng=Random.default_rng())
+    marginal_stats(mop::MixtureOfProductIntensities; reltol=1e-4)
 
 Compute statistics for MixtureOfProductIntensities.
 
@@ -492,9 +471,7 @@ Returns a named tuple with:
 - E_N: Expected total sites = C
 - E_edges_edge_centric: Expected edges = (E[N]/2) · E[g·r]
 """
-function marginal_stats(mop::MixtureOfProductIntensities{d};
-                         n_samples::Int=10000,
-                         rng::AbstractRNG=Random.default_rng()) where d
+function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-4) where d
     M = length(mop.species)
 
     # Compute per-species statistics
@@ -502,10 +479,10 @@ function marginal_stats(mop::MixtureOfProductIntensities{d};
     γ = Vector{Float64}(undef, M)
 
     for (m, species) in enumerate(mop.species)
-        c_G = total_intensity(species.ρ_G; n_samples=n_samples, rng=rng)
-        c_R = total_intensity(species.ρ_R; n_samples=n_samples, rng=rng)
-        μ_G = intensity_weighted_mean(species.ρ_G; n_samples=n_samples, rng=rng)
-        μ_R = intensity_weighted_mean(species.ρ_R; n_samples=n_samples, rng=rng)
+        c_G = total_intensity(species.ρ_G; reltol=reltol)
+        c_R = total_intensity(species.ρ_R; reltol=reltol)
+        μ_G = intensity_weighted_mean(species.ρ_G; reltol=reltol)
+        μ_R = intensity_weighted_mean(species.ρ_R; reltol=reltol)
         μ̃_G = μ_G ./ c_G
         μ̃_R = μ_R ./ c_R
         avg_conn_prob = dot(μ̃_G, μ̃_R)
@@ -552,10 +529,10 @@ Algorithm:
 Returns a tuple (species_index, g, r) where g and r are LatentPoints.
 """
 function sample_from_mixture(mop::MixtureOfProductIntensities{d};
-                              n_samples::Int=10000,
+                              reltol::Float64=1e-4,
                               rng::AbstractRNG=Random.default_rng()) where d
     # Compute species probabilities
-    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
+    γ = species_intensities(mop; reltol=reltol)
     probs = γ ./ sum(γ)
 
     # Sample species
@@ -652,7 +629,7 @@ struct ScaledProductEdgeIntensity{d, FS<:AbstractIntensity{d}, FT<:AbstractInten
 end
 
 """
-    ScaledProductEdgeIntensity(ρ_source, ρ_target; C_edge=nothing, n_samples=10000, rng=Random.default_rng())
+    ScaledProductEdgeIntensity(ρ_source, ρ_target; C_edge=nothing, reltol=1e-4)
 
 Construct a ScaledProductEdgeIntensity from source and target intensities.
 
@@ -663,14 +640,13 @@ For symmetric case (same population), use SymmetricEdgeIntensity instead.
 """
 function ScaledProductEdgeIntensity(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d};
                                      C_edge::Union{Nothing, Float64}=nothing,
-                                     n_samples::Int=10000,
-                                     rng::AbstractRNG=Random.default_rng()) where d
+                                     reltol::Float64=1e-4) where d
     if isnothing(C_edge)
         # For separate source/target populations:
         # Total node-equivalents = C_source + C_target
         # Each edge consumes 2 (one from each), so C_edge = (C_source + C_target)/2
-        C_S = total_intensity(ρ_source; n_samples=n_samples, rng=rng)
-        C_T = total_intensity(ρ_target; n_samples=n_samples, rng=rng)
+        C_S = total_intensity(ρ_source; reltol=reltol)
+        C_T = total_intensity(ρ_target; reltol=reltol)
         C_edge = (C_S + C_T) / 2
     end
 
@@ -678,7 +654,7 @@ function ScaledProductEdgeIntensity(ρ_source::AbstractIntensity{d}, ρ_target::
 end
 
 """
-    SymmetricEdgeIntensity(ρ; n_samples=10000, rng=Random.default_rng())
+    SymmetricEdgeIntensity(ρ; reltol=1e-4)
 
 Convenience constructor for symmetric case where ρ_source = ρ_target = ρ.
 
@@ -686,11 +662,9 @@ For a single population with intensity ρ:
 - E[N] = total_intensity(ρ)
 - C_edge = E[N]/2 (each edge consumes 2 node-equivalents from the same pool)
 """
-function SymmetricEdgeIntensity(ρ::AbstractIntensity{d};
-                                 n_samples::Int=10000,
-                                 rng::AbstractRNG=Random.default_rng()) where d
+function SymmetricEdgeIntensity(ρ::AbstractIntensity{d}; reltol::Float64=1e-4) where d
     # Single population: E[N] = C, so C_edge = C/2
-    C = total_intensity(ρ; n_samples=n_samples, rng=rng)
+    C = total_intensity(ρ; reltol=reltol)
     C_edge = C / 2
     return ScaledProductEdgeIntensity{d}(ρ, ρ, C_edge)
 end
@@ -703,7 +677,7 @@ Return the total edge opportunity intensity C_edge = E[N]/2.
 edge_intensity(ei::ScaledProductEdgeIntensity) = ei.C_edge
 
 """
-    marginal_stats(ei::ScaledProductEdgeIntensity; n_samples=10000, rng=Random.default_rng())
+    marginal_stats(ei::ScaledProductEdgeIntensity; reltol=1e-4)
 
 Compute statistics for a ScaledProductEdgeIntensity.
 
@@ -714,12 +688,10 @@ Returns a named tuple with:
 - avg_conn_prob: Expected connection probability E[g_s · r_t]
 - E_edges: Expected realized edges = C_edge · avg_conn_prob
 """
-function marginal_stats(ei::ScaledProductEdgeIntensity{d};
-                         n_samples::Int=10000,
-                         rng::AbstractRNG=Random.default_rng()) where d
+function marginal_stats(ei::ScaledProductEdgeIntensity{d}; reltol::Float64=1e-4) where d
     # Get stats from source and target
-    stats_S = marginal_stats(ei.ρ_source; n_samples=n_samples, rng=rng)
-    stats_T = marginal_stats(ei.ρ_target; n_samples=n_samples, rng=rng)
+    stats_S = marginal_stats(ei.ρ_source; reltol=reltol)
+    stats_T = marginal_stats(ei.ρ_target; reltol=reltol)
 
     # For ProductIntensity, use the normalized means
     # For MixtureOfProductIntensities, compute weighted average
@@ -887,9 +859,9 @@ function create_calibrated_product_intensity(target_lambda::Real;
     ρ_G_unit = BdPlusMixture([1.0], [mean_G], [conc], 1.0)
     ρ_R_unit = BdPlusMixture([1.0], [mean_R], [conc], 1.0)
 
-    # Measure total intensities via Monte Carlo
-    c_G_unit = total_intensity(ρ_G_unit; n_samples=10000, rng=MersenneTwister(42))
-    c_R_unit = total_intensity(ρ_R_unit; n_samples=10000, rng=MersenneTwister(43))
+    # Compute total intensities via quadrature
+    c_G_unit = total_intensity(ρ_G_unit)
+    c_R_unit = total_intensity(ρ_R_unit)
 
     # Compute scale factor to achieve target Λ
     # With equal scaling: (s × c_G_unit) × (s × c_R_unit) = target_lambda

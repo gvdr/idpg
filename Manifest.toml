@@ -2,7 +2,7 @@
 
 julia_version = "1.12.3"
 manifest_format = "2.0"
-project_hash = "4b48e3f4ead1873f5b6867dbfdb25a6a25ed9b8f"
+project_hash = "d46bd529f61dd483748fc7ff4342f46a086b6f98"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "8b2b045b22740e4be20654175cc38291d48539db"
@@ -390,6 +390,18 @@ deps = ["Markdown"]
 git-tree-sha1 = "fcbb72b032692610bfbdb15018ac16a36cf2e406"
 uuid = "adafc99b-e345-5852-983c-f28acb93d879"
 version = "0.3.1"
+
+[[deps.Cuba]]
+deps = ["Cuba_jll", "LinearAlgebra"]
+git-tree-sha1 = "3a86c9b6f29a5ed3a5ffd9bffb0d4010e2e91f22"
+uuid = "8a292aeb-7a57-582c-b821-06e4c11590b1"
+version = "2.3.0"
+
+[[deps.Cuba_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "d1a097bc5d05f54c2705fcea123b64d303ac659c"
+uuid = "3bed1096-5ab2-53a1-92e2-6c1cc31d0f4b"
+version = "4.2.2+1"
 
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
@@ -933,7 +945,7 @@ uuid = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 version = "0.11.6"
 
 [[deps.IDPG]]
-deps = ["CairoMakie", "Clustering", "Distributions", "GraphMakie", "Graphs", "HypothesisTests", "JLD2", "LaTeXStrings", "LinearAlgebra", "NetworkLayout", "OrdinaryDiffEq", "Random", "SpecialFunctions", "StaticArrays", "StatsBase"]
+deps = ["CairoMakie", "Clustering", "Distributions", "GraphMakie", "Graphs", "HypothesisTests", "Integrals", "JLD2", "LaTeXStrings", "LinearAlgebra", "NetworkLayout", "OrdinaryDiffEq", "Random", "SpecialFunctions", "StaticArrays", "StatsBase"]
 path = "."
 uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 version = "0.1.0"

@@ -12,6 +12,7 @@ using GraphMakie
 using SpecialFunctions: gamma
 using OrdinaryDiffEq
 using Integrals
+using Cuba
 
 # Include component files (not submodules, just code)
 # Note: Order matters - PDEEvolution before Sampling because Sampling uses BdPlusGrid

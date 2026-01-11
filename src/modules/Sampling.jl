@@ -117,9 +117,9 @@ For ProductIntensity, we can sample more efficiently:
 function sample_ppp_product(ρ::ProductIntensity{d};
                             rng::AbstractRNG=Random.default_rng()) where d
 
-    # Get total intensities
-    c_G = total_intensity(ρ.ρ_G; rng=rng)
-    c_R = total_intensity(ρ.ρ_R; rng=rng)
+    # Get total intensities (quadrature-based, no rng needed)
+    c_G = total_intensity(ρ.ρ_G)
+    c_R = total_intensity(ρ.ρ_R)
 
     # Expected number of sites
     E_N = c_G * c_R
