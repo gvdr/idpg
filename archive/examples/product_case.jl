@@ -72,14 +72,14 @@ for (i, case) in enumerate(test_cases)
     ρ = ProductIntensity(ρ_G, ρ_R)
 
     # Theoretical values
-    stats = marginal_stats(ρ; rng=rng)
+    stats = marginal_stats(ρ)
 
     push!(theoretical_N, stats.E_N)
     push!(theoretical_E, stats.E_edges_node_centric)
     push!(theoretical_L, stats.E_edges_edge_centric)
 
     # Create edge intensity for edge-centric sampling
-    ei = SymmetricEdgeIntensity(ρ; rng=rng)
+    ei = SymmetricEdgeIntensity(ρ)
 
     # Empirical sampling
     N_samples = Int[]

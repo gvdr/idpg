@@ -92,7 +92,7 @@ for (col, scenario) in enumerate(scenarios)
     ρ = ProductIntensity(ρ_G, ρ_R)
 
     # Compute statistics
-    stats = marginal_stats(ρ; rng=rng)
+    stats = marginal_stats(ρ)
     println("  Expected opportunities E[N]: ", round(stats.E_N, digits=1))
     println("  Avg connection prob: ", round(stats.avg_conn_prob, digits=3))
     println("  Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
@@ -256,7 +256,7 @@ for (idx, scenario) in enumerate(scenarios)
     ρ_G = BdPlusMixture(weights_G, means_G, scenario.κ_G, scenario.scale_G)
     ρ_R = BdPlusMixture(weights_R, means_R, scenario.κ_R, scenario.scale_R)
     ρ = ProductIntensity(ρ_G, ρ_R)
-    stats = marginal_stats(ρ; rng=rng)
+    stats = marginal_stats(ρ)
 
     # Encounter model: E[L] = E[N] × E[g·r]
     E_L_encounter = stats.E_N * stats.avg_conn_prob

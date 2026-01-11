@@ -35,7 +35,7 @@ println("\n--- Setting Up Intensity ---")
 )
 
 ρ = ProductIntensity(ρ_G, ρ_R)
-stats = marginal_stats(ρ; rng=rng)
+stats = marginal_stats(ρ)
 
 println("Expected nodes E[N]: ", round(stats.E_N, digits=2))
 println("Expected edges E[|E|]: ", round(stats.E_edges_node_centric, digits=1))
@@ -355,7 +355,7 @@ for (idx, case) in enumerate(comparison_cases)
     ρ_G_c = BdPlusMixture([1.0], [case.mean_G], [case.conc], case.scale)
     ρ_R_c = BdPlusMixture([1.0], [case.mean_R], [case.conc], case.scale)
     ρ_c = ProductIntensity(ρ_G_c, ρ_R_c)
-    stats_c = marginal_stats(ρ_c; rng=rng)
+    stats_c = marginal_stats(ρ_c)
 
     recip_vals = Float64[]
     cluster_vals = Float64[]

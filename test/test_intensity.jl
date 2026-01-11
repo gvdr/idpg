@@ -37,16 +37,14 @@ using Random
     end
 
     @testset "BdPlusMixture total intensity" begin
-        rng = MersenneTwister(42)
-
         means = [[0.5, 0.5]]
         concentrations = [5.0]
         scale = 10.0
 
         bm = BdPlusMixture([1.0], means, concentrations, scale)
 
-        # Monte Carlo estimate of total intensity
-        c = total_intensity(bm; n_samples=5000, rng=rng)
+        # Quadrature estimate of total intensity
+        c = total_intensity(bm)
 
         # Should be positive and of similar order to scale
         @test c > 0
@@ -69,13 +67,11 @@ using Random
     end
 
     @testset "marginal_stats" begin
-        rng = MersenneTwister(42)
-
         ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [5.0], 10.0)
         ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [5.0], 5.0)
         ρ = ProductIntensity(ρ_G, ρ_R)
 
-        stats = marginal_stats(ρ; n_samples=5000, rng=rng)
+        stats = marginal_stats(ρ)
 
         # E[N] should be c_G * c_R
         @test stats.E_N > 0
@@ -90,11 +86,9 @@ using Random
     end
 
     @testset "intensity_weighted_mean" begin
-        rng = MersenneTwister(42)
-
         # Concentrated distribution - mean should be near the mode
         bm = BdPlusMixture([1.0], [[0.7, 0.3]], [20.0], 1.0)
-        μ = intensity_weighted_mean(bm; n_samples=5000, rng=rng)
+        μ = intensity_weighted_mean(bm)
 
         # Mean should be positive and finite
         @test all(x -> x >= 0, μ)
@@ -138,18 +132,16 @@ using Random
     end
 
     @testset "ScaledProductEdgeIntensity" begin
-        rng = MersenneTwister(42)
-
         # Create product intensity
         ρ_G = BdPlusMixture([1.0], [[0.6, 0.4]], [10.0], 20.0)
         ρ_R = BdPlusMixture([1.0], [[0.4, 0.6]], [10.0], 20.0)
         ρ = ProductIntensity(ρ_G, ρ_R)
 
         # Create symmetric edge intensity
-        ei = SymmetricEdgeIntensity(ρ; rng=rng)
+        ei = SymmetricEdgeIntensity(ρ)
 
         # C_edge should be E[N]/2
-        E_N = total_intensity(ρ; rng=rng)
+        E_N = total_intensity(ρ)
         @test isapprox(ei.C_edge, E_N / 2, rtol=0.2)
 
         # edge_intensity should return C_edge
@@ -157,24 +149,20 @@ using Random
     end
 
     @testset "SymmetricEdgeIntensity C_edge formula" begin
-        rng = MersenneTwister(42)
-
         # Create product intensity with known total intensity
         ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 30.0)
         ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 30.0)
         ρ = ProductIntensity(ρ_G, ρ_R)
 
         # Create edge intensity
-        ei = SymmetricEdgeIntensity(ρ; rng=rng)
+        ei = SymmetricEdgeIntensity(ρ)
 
         # Verify C_edge = E[N]/2
-        stats = marginal_stats(ρ; rng=rng)
+        stats = marginal_stats(ρ)
         @test isapprox(ei.C_edge, stats.E_N / 2, rtol=0.15)
     end
 
     @testset "ScaledProductEdgeIntensity asymmetric" begin
-        rng = MersenneTwister(42)
-
         # Create separate source and target intensities
         ρ_source = ProductIntensity(
             BdPlusMixture([1.0], [[0.7, 0.3]], [10.0], 25.0),
@@ -186,23 +174,21 @@ using Random
         )
 
         # Create edge intensity
-        ei = ScaledProductEdgeIntensity(ρ_source, ρ_target; rng=rng)
+        ei = ScaledProductEdgeIntensity(ρ_source, ρ_target)
 
         # C_edge should be (C_source + C_target) / 2 for asymmetric case
-        C_S = total_intensity(ρ_source; rng=rng)
-        C_T = total_intensity(ρ_target; rng=rng)
+        C_S = total_intensity(ρ_source)
+        C_T = total_intensity(ρ_target)
         @test isapprox(ei.C_edge, (C_S + C_T) / 2, rtol=0.2)
     end
 
     @testset "marginal_stats for edge intensity" begin
-        rng = MersenneTwister(42)
-
         ρ_G = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 25.0)
         ρ_R = BdPlusMixture([1.0], [[0.5, 0.5]], [10.0], 25.0)
         ρ = ProductIntensity(ρ_G, ρ_R)
 
-        ei = SymmetricEdgeIntensity(ρ; rng=rng)
-        stats = marginal_stats(ei; rng=rng)
+        ei = SymmetricEdgeIntensity(ρ)
+        stats = marginal_stats(ei)
 
         # Check all expected fields exist
         @test haskey(stats, :C_edge)

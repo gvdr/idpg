@@ -57,21 +57,7 @@ end
 # Sampling from Mixture of Truncated Gaussians
 # ============================================================================
 
-# Note: Uses sample_guild_position and project_to_Bd_plus from IDPG library
-
-"""
-    sample_from_guild(μ, κ, n_samples)
-
-Sample n points from truncated Gaussian centered at μ with concentration κ.
-Uses library's sample_guild_position internally.
-"""
-function sample_from_guild(μ::Vector{Float64}, κ::Float64, n_samples::Int)
-    samples = Vector{Vector{Float64}}(undef, n_samples)
-    for i in 1:n_samples
-        samples[i] = sample_guild_position(μ, κ)
-    end
-    return samples
-end
+# Note: Uses sample_guild_position from IDPG library
 
 """
     sample_mixture(M, weights, κ, n_total)
@@ -97,7 +83,7 @@ function sample_mixture(M::Matrix{Float64}, weights::Vector{Float64}, κ::Float6
 
     for g in 1:n_guilds
         μ = M[g, :]
-        guild_samples = sample_from_guild(μ, κ, n_per_guild[g])
+        guild_samples = [sample_guild_position(μ, κ) for _ in 1:n_per_guild[g]]
         append!(samples, guild_samples)
         append!(guild_labels, fill(g, n_per_guild[g]))
     end

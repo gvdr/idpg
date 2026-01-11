@@ -43,7 +43,7 @@ d = 2
 ρ = ProductIntensity(ρ_G, ρ_R)
 
 # Compute theoretical statistics
-stats = marginal_stats(ρ; rng=rng)
+stats = marginal_stats(ρ)
 println("=== Theoretical Statistics ===")
 println("c_G (total green intensity): ", round(stats.c_G, digits=2))
 println("c_R (total red intensity): ", round(stats.c_R, digits=2))
@@ -83,7 +83,7 @@ println("\n=== Edge-Centric Sampling ===")
 
 # Create edge intensity with symmetric source/target (same population)
 # For symmetric case: E[N] = total_intensity(ρ), C_edge = E[N]/2
-ei = SymmetricEdgeIntensity(ρ; rng=rng)
+ei = SymmetricEdgeIntensity(ρ)
 println("E[N] = ", round(2 * ei.C_edge, digits=2))
 println("C_edge = E[N]/2 = ", round(ei.C_edge, digits=2))
 
@@ -127,7 +127,7 @@ E_nc_samples = Int[]
 L_ec_samples = Int[]
 
 # Pre-compute edge intensity (symmetric case: same population)
-ei_validation = SymmetricEdgeIntensity(ρ; rng=rng)
+ei_validation = SymmetricEdgeIntensity(ρ)
 
 for trial in 1:n_trials
     # Node-centric: sample sites, then N² pairs

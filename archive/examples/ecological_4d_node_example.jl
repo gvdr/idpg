@@ -324,7 +324,7 @@ for (col, scenario) in enumerate(scenarios)
 
     # Use more MC samples for 4D case
     n_mc = scenario.dim == 4 ? 50000 : 10000
-    stats = marginal_stats(ρ; n_samples=n_mc, rng=rng)
+    stats = marginal_stats(ρ)
     println("  Dimension: ", scenario.dim)
     println("  Number of species: ", n_species(ρ))
     println("  Species intensities γ: ", round.(stats.γ, digits=1))
@@ -332,7 +332,7 @@ for (col, scenario) in enumerate(scenarios)
     println("  Expected interactions E[L]: ", round(stats.E_edges_edge_centric, digits=1))
 
     # Sample sites from MixtureOfProductIntensities (species labels + sites)
-    labeled_sites = sample_ppp_mixture(ρ; n_samples=n_mc, rng=MersenneTwister(161 + col))
+    labeled_sites = sample_ppp_mixture(ρ; rng=MersenneTwister(161 + col))
     sites = [site for (_, site) in labeled_sites]  # Extract just the InteractionSites
     # NODE-CENTRIC: sites become nodes, ALL N² pairs considered for edges
     interactions = generate_edge_centric_full(sites; rng=MersenneTwister(161 + col))
@@ -458,7 +458,7 @@ for (idx, seed) in enumerate(sample_seeds)
     col = mod(idx - 1, 2) + 1
 
     # Sample sites from MixtureOfProductIntensities
-    labeled_sites = sample_ppp_mixture(ρ_4d; n_samples=50000, rng=MersenneTwister(seed))
+    labeled_sites = sample_ppp_mixture(ρ_4d; rng=MersenneTwister(seed))
     sites = [site for (_, site) in labeled_sites]
     # NODE-CENTRIC: sites become nodes, ALL N² pairs considered for edges
     interactions = generate_edge_centric_full(sites; rng=MersenneTwister(seed))
@@ -563,7 +563,7 @@ if !VIZ_ONLY
 
     ρ = create_species_mixture(means_G, means_R, κ_detailed, detailed_scales)
 
-    stats = marginal_stats(ρ; n_samples=50000, rng=rng)
+    stats = marginal_stats(ρ)
     println("Number of species: ", n_species(ρ))
     println("Species intensities γ: ", round.(stats.γ, digits=1))
     println("Total intensity C: ", round(stats.C, digits=1))
@@ -577,7 +577,7 @@ if !VIZ_ONLY
     edge_presence = zeros(n_guilds, n_guilds)
 
     for t in 1:n_trials
-        labeled_sites = sample_ppp_mixture(ρ; n_samples=50000, rng=MersenneTwister(1610 + t))
+        labeled_sites = sample_ppp_mixture(ρ; rng=MersenneTwister(1610 + t))
         sites = [site for (_, site) in labeled_sites]
         # NODE-CENTRIC: sites become nodes, ALL N² pairs considered for edges
         interactions = generate_edge_centric_full(sites; rng=MersenneTwister(1610 + t))

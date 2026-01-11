@@ -59,63 +59,7 @@ end
 # Graph Generation
 # ============================================================================
 
-# Note: Uses sample_guild_position and project_to_Bd_plus from IDPG library
-
-"""
-    generate_idpg_graph(M_G, M_R, π, Λ, κ)
-
-Generate a graph from IDPG with given guild centroids.
-Returns adjacency matrix at guild level (aggregated).
-"""
-function generate_idpg_graph(M_G::Matrix{Float64}, M_R::Matrix{Float64},
-                              π::Vector{Float64}, Λ::Float64, κ::Float64)
-    n_guilds = size(M_G, 1)
-
-    # Sample number of entities
-    N = rand(Poisson(Λ))
-
-    if N == 0
-        return zeros(Int, n_guilds, n_guilds)
-    end
-
-    # Assign each entity to a guild
-    guild_counts = zeros(Int, n_guilds)
-    guild_assignments = zeros(Int, N)
-    for i in 1:N
-        g = rand(Distributions.Categorical(π))
-        guild_assignments[i] = g
-        guild_counts[g] += 1
-    end
-
-    # Sample positions for each entity
-    g_positions = Vector{Vector{Float64}}(undef, N)
-    r_positions = Vector{Vector{Float64}}(undef, N)
-
-    for i in 1:N
-        g_idx = guild_assignments[i]
-        g_positions[i] = sample_guild_position(M_G[g_idx, :], κ)
-        r_positions[i] = sample_guild_position(M_R[g_idx, :], κ)
-    end
-
-    # Generate edges
-    edge_counts = zeros(Int, n_guilds, n_guilds)
-
-    for i in 1:N
-        for j in 1:N
-            if i != j  # No self-loops
-                # Probability of edge from i to j: g_i · r_j
-                p = dot(g_positions[i], r_positions[j])
-                if rand() < p
-                    g_i = guild_assignments[i]
-                    g_j = guild_assignments[j]
-                    edge_counts[g_i, g_j] += 1
-                end
-            end
-        end
-    end
-
-    return edge_counts
-end
+# Note: Uses sample_guild_graph from IDPG library
 
 # ============================================================================
 # Theoretical Quantities
@@ -164,7 +108,7 @@ function compute_figure_D_data()
     println("\nSampling " * string(N_SAMPLES) * " realized graphs...")
     total_edges = zeros(n_guilds, n_guilds)
     for s in 1:N_SAMPLES
-        edges = generate_idpg_graph(M_G, M_R, π, LAMBDA, KAPPA)
+        edges = sample_guild_graph(M_G, M_R, π, LAMBDA, KAPPA)
         total_edges .+= edges
     end
     avg_edges = total_edges ./ N_SAMPLES
