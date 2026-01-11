@@ -57,20 +57,6 @@ const truncated_gaussian = truncated_gaussian_kappa
 # ============================================================================
 
 """
-Compute the kernel K(g,r) = g·r on a 2D grid.
-"""
-function compute_kernel(grid::Vector{Float64})
-    n = length(grid)
-    K = zeros(n, n)
-    for (i, g) in enumerate(grid)
-        for (j, r) in enumerate(grid)
-            K[i, j] = g * r
-        end
-    end
-    return K
-end
-
-"""
 Compute all intensities and heats for asymmetric source-target case.
 """
 function compute_asymmetric_heats(grid::Vector{Float64})
@@ -95,8 +81,8 @@ function compute_asymmetric_heats(grid::Vector{Float64})
     # Target marginal (weighted by w_T): ρ_T(r) = Σ_m w_{T,m} · ρ_{R,m}(r)
     ρ_T = sum(sp.w_T .* ρ_R_species[i] for (i, sp) in enumerate(SPECIES))
 
-    # Kernel
-    K = compute_kernel(grid)
+    # Kernel K(g,r) = g·r (outer product)
+    K = grid * grid'
 
     # Joint intensity for mixture of products (sum of products, NOT product of sums):
     # ρ(g,r) = Σ_m ρ_{G,m}(g) · ρ_{R,m}(r)

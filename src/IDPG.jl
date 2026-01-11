@@ -86,7 +86,7 @@ export latex_figure_theme, with_latex_theme
 export assign_site_to_guild, assign_point_to_guild
 export build_full_guild_means
 export compute_foodweb_matrix, normalize_foodweb_matrix
-export sample_guild_position
+export sample_guild_position, sample_guild_graph
 export compute_expected_guild_edges, compute_guild_affinity
 export trophic_layout
 

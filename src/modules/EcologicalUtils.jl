@@ -681,3 +681,95 @@ function construct_food_web_centroids(K_star::AbstractMatrix=default_trophic_aff
         guild_names = ["Producers", "Small Herbivores", "Large Herbivores", "Small Predators", "Apex Predators"],
     )
 end
+
+# ============================================================================
+# Guild-Based Graph Sampling
+# ============================================================================
+
+"""
+    sample_guild_graph(M_G, M_R, π, Λ, κ; rng=Random.default_rng())
+
+Sample an IDPG graph with explicit guild structure.
+
+Generates a node-centric IDPG where entities are first assigned to guilds,
+then sample positions around guild centroids, and finally form edges with
+probability equal to the dot product of source and target positions.
+
+# Arguments
+- `M_G`: Matrix of source (green) guild centroids, n_guilds × d
+- `M_R`: Matrix of target (red) guild centroids, n_guilds × d
+- `π`: Guild probability vector (mixing weights, sums to 1)
+- `Λ`: Total intensity (expected number of entities)
+- `κ`: Concentration parameter for vMF-like sampling around centroids
+- `rng`: Random number generator
+
+# Returns
+n_guilds × n_guilds matrix of edge counts, where entry [i,j] is the number
+of edges from entities in guild i to entities in guild j.
+
+# Process
+1. Sample N ~ Poisson(Λ) total entities
+2. Assign each entity to a guild via Categorical(π)
+3. Sample g and r positions around guild centroids using `sample_guild_position`
+4. Form directed edge i→j with probability gᵢ ⋅ rⱼ
+5. Aggregate edges by guild membership
+
+# Example
+```julia
+n_guilds, d = 4, 4
+M_G = rand(n_guilds, d)  # source centroids
+M_R = rand(n_guilds, d)  # target centroids
+π = fill(1/n_guilds, n_guilds)
+Λ, κ = 100.0, 30.0
+
+edge_counts = sample_guild_graph(M_G, M_R, π, Λ, κ)
+```
+
+See also: [`sample_guild_position`](@ref), [`compute_expected_guild_edges`](@ref)
+"""
+function sample_guild_graph(M_G::AbstractMatrix, M_R::AbstractMatrix,
+                            π::AbstractVector, Λ::Real, κ::Real;
+                            rng::AbstractRNG=Random.default_rng())
+    n_guilds = size(M_G, 1)
+
+    # Sample number of entities from Poisson(Λ)
+    N = rand(rng, Distributions.Poisson(Λ))
+
+    if N == 0
+        return zeros(Int, n_guilds, n_guilds)
+    end
+
+    # Assign each entity to a guild
+    guild_assignments = zeros(Int, N)
+    for i in 1:N
+        guild_assignments[i] = rand(rng, Distributions.Categorical(π))
+    end
+
+    # Sample positions for each entity
+    g_positions = Vector{Vector{Float64}}(undef, N)
+    r_positions = Vector{Vector{Float64}}(undef, N)
+
+    for i in 1:N
+        g_idx = guild_assignments[i]
+        g_positions[i] = sample_guild_position(M_G[g_idx, :], κ; rng=rng)
+        r_positions[i] = sample_guild_position(M_R[g_idx, :], κ; rng=rng)
+    end
+
+    # Generate edges with probability gᵢ ⋅ rⱼ
+    edge_counts = zeros(Int, n_guilds, n_guilds)
+
+    for i in 1:N
+        for j in 1:N
+            if i != j  # No self-loops
+                p = dot(g_positions[i], r_positions[j])
+                if rand(rng) < p
+                    g_i = guild_assignments[i]
+                    g_j = guild_assignments[j]
+                    edge_counts[g_i, g_j] += 1
+                end
+            end
+        end
+    end
+
+    return edge_counts
+end

@@ -54,20 +54,6 @@ end
 # ============================================================================
 
 """
-Compute the kernel K(g,r) = g·r on a 2D grid.
-"""
-function compute_kernel(grid::Vector{Float64})
-    n = length(grid)
-    K = zeros(n, n)
-    for (i, g) in enumerate(grid)
-        for (j, r) in enumerate(grid)
-            K[i, j] = g * r
-        end
-    end
-    return K
-end
-
-"""
 Compute bound heat and related quantities.
 """
 function compute_heats(grid::Vector{Float64}, ρ_G::Vector{Float64}, ρ_R::Vector{Float64})
@@ -90,8 +76,8 @@ function compute_heats(grid::Vector{Float64}, ρ_G::Vector{Float64}, ρ_R::Vecto
     # Mean connection probability
     p_bar = μ_G_tilde * μ_R_tilde
 
-    # Kernel
-    K = compute_kernel(grid)
+    # Kernel K(g,r) = g·r (outer product)
+    K = grid * grid'
 
     # Bound heat: h̄(g,r) = K(g,r) · ρ_G(g) · ρ_R(r)
     bound_heat = zeros(n, n)

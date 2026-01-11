@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Giulio Valentino Dalla Riva <me@gvdallariva.net>"]
 
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
 Cuba = "8a292aeb-7a57-582c-b821-06e4c11590b1"
@@ -25,6 +26,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+BenchmarkTools = "1.6.3"
 CairoMakie = "0.15"
 Clustering = "0.15.8"
 Cuba = "2.3.0"

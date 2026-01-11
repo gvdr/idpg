@@ -67,19 +67,7 @@ end
 # Pursuit-Evasion Dynamics in 4D
 # ============================================================================
 
-"""
-    project_to_Bd_plus(x)
-
-Project point to B^d_+ (positive orthant of unit ball).
-"""
-function project_to_Bd_plus(x::Vector{Float64})
-    x_pos = max.(x, 0.0)
-    n = norm(x_pos)
-    if n > 0.99  # Stay slightly interior
-        x_pos .*= 0.99 / n
-    end
-    return x_pos
-end
+# Note: Uses project_to_Bd_plus from IDPG library
 
 """
     compute_mean_position(M, weights)
@@ -141,59 +129,7 @@ end
 # Graph Generation
 # ============================================================================
 
-# Note: Uses sample_guild_position from IDPG library
-
-"""
-    generate_idpg_graph(M_G, M_R, π, Λ, κ)
-
-Generate a graph from IDPG with given guild centroids.
-Returns adjacency matrix at guild level.
-"""
-function generate_idpg_graph(M_G::Matrix{Float64}, M_R::Matrix{Float64},
-                              π::Vector{Float64}, Λ::Float64, κ::Float64)
-    n_guilds = size(M_G, 1)
-
-    # Sample number of entities
-    N = rand(Distributions.Poisson(Λ))
-
-    if N == 0
-        return zeros(Int, n_guilds, n_guilds)
-    end
-
-    # Assign each entity to a guild
-    guild_assignments = zeros(Int, N)
-    for i in 1:N
-        guild_assignments[i] = rand(Distributions.Categorical(π))
-    end
-
-    # Sample positions for each entity
-    g_positions = Vector{Vector{Float64}}(undef, N)
-    r_positions = Vector{Vector{Float64}}(undef, N)
-
-    for i in 1:N
-        g_idx = guild_assignments[i]
-        g_positions[i] = sample_guild_position(M_G[g_idx, :], κ)
-        r_positions[i] = sample_guild_position(M_R[g_idx, :], κ)
-    end
-
-    # Generate edges
-    edge_counts = zeros(Int, n_guilds, n_guilds)
-
-    for i in 1:N
-        for j in 1:N
-            if i != j
-                p = dot(g_positions[i], r_positions[j])
-                if rand() < p
-                    g_i = guild_assignments[i]
-                    g_j = guild_assignments[j]
-                    edge_counts[g_i, g_j] += 1
-                end
-            end
-        end
-    end
-
-    return edge_counts
-end
+# Note: Uses sample_guild_graph from IDPG library
 
 # ============================================================================
 # Theoretical Quantities
@@ -257,7 +193,7 @@ function compute_figure_E_data()
     # Sample initial graphs
     total_edges = zeros(n_guilds, n_guilds)
     for _ in 1:N_SAMPLES
-        total_edges .+= generate_idpg_graph(M_G, M_R, π, LAMBDA, KAPPA)
+        total_edges .+= sample_guild_graph(M_G, M_R, π, LAMBDA, KAPPA)
     end
     avg_edges_all[0.0] = total_edges ./ N_SAMPLES
 
@@ -279,7 +215,7 @@ function compute_figure_E_data()
                 # Sample graphs
                 total_edges = zeros(n_guilds, n_guilds)
                 for _ in 1:N_SAMPLES
-                    total_edges .+= generate_idpg_graph(M_G, M_R, π, LAMBDA, KAPPA)
+                    total_edges .+= sample_guild_graph(M_G, M_R, π, LAMBDA, KAPPA)
                 end
                 avg_edges_all[t_snap] = total_edges ./ N_SAMPLES
 
