@@ -113,14 +113,22 @@ Sample from product intensity more efficiently by sampling from each marginal in
 For ProductIntensity, we can sample more efficiently:
 1. Sample N ~ Poisson(c_G · c_R) total sites
 2. For each site, sample g from ρ_G (normalized) and r from ρ_R (normalized) independently
+
+Two methods are provided:
+- `sample_ppp_product(ρ; rng)` computes total intensities via quadrature (convenient but slow if called repeatedly)
+- `sample_ppp_product(ρ, c_G, c_R; rng)` uses precomputed intensities (fast for repeated sampling)
+
+For performance-critical code with many samples from the same intensity, precompute once:
+```julia
+c_G = total_intensity(ρ.ρ_G)
+c_R = total_intensity(ρ.ρ_R)
+for _ in 1:n_reps
+    sites = sample_ppp_product(ρ, c_G, c_R; rng=rng)
+end
+```
 """
-function sample_ppp_product(ρ::ProductIntensity{d};
+function sample_ppp_product(ρ::ProductIntensity{d}, c_G::Float64, c_R::Float64;
                             rng::AbstractRNG=Random.default_rng()) where d
-
-    # Get total intensities (quadrature-based, no rng needed)
-    c_G = total_intensity(ρ.ρ_G)
-    c_R = total_intensity(ρ.ρ_R)
-
     # Expected number of sites
     E_N = c_G * c_R
 
@@ -133,6 +141,14 @@ function sample_ppp_product(ρ::ProductIntensity{d};
              for _ in 1:n_sites]
 
     return sites
+end
+
+# Convenience method that computes total intensities via quadrature
+function sample_ppp_product(ρ::ProductIntensity{d};
+                            rng::AbstractRNG=Random.default_rng()) where d
+    c_G = total_intensity(ρ.ρ_G)
+    c_R = total_intensity(ρ.ρ_R)
+    return sample_ppp_product(ρ, c_G, c_R; rng=rng)
 end
 
 """
@@ -403,12 +419,21 @@ Algorithm:
 3. For each of N sites:
    - Sample species m with probability γ_m / C
    - Sample g from ρ_{G,m}, r from ρ_{R,m}
+
+Two methods are provided:
+- `sample_ppp_mixture(mop; rng)` computes species intensities via quadrature (convenient but slow if called repeatedly)
+- `sample_ppp_mixture(mop, γ; rng)` uses precomputed species intensities (fast for repeated sampling)
+
+For performance-critical code, precompute species intensities once:
+```julia
+γ = species_intensities(mop)
+for _ in 1:n_reps
+    sites = sample_ppp_mixture(mop, γ; rng=rng)
+end
+```
 """
-function sample_ppp_mixture(mop::MixtureOfProductIntensities{d};
-                             n_samples::Int=10000,
+function sample_ppp_mixture(mop::MixtureOfProductIntensities{d}, γ::Vector{Float64};
                              rng::AbstractRNG=Random.default_rng()) where d
-    # Compute species intensities γ_m
-    γ = species_intensities(mop; n_samples=n_samples, rng=rng)
     C = sum(γ)
     probs = γ ./ C
 
@@ -428,16 +453,33 @@ function sample_ppp_mixture(mop::MixtureOfProductIntensities{d};
     return sites
 end
 
+# Convenience method that computes species intensities via quadrature
+function sample_ppp_mixture(mop::MixtureOfProductIntensities{d};
+                             rng::AbstractRNG=Random.default_rng()) where d
+    γ = species_intensities(mop)
+    return sample_ppp_mixture(mop, γ; rng=rng)
+end
+
 """
     sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities; rng=Random.default_rng()) -> Vector{InteractionSite}
 
 Sample sites from MixtureOfProductIntensities PPP, discarding species labels.
 Convenience wrapper when species identity is not needed.
+
+Two methods are provided:
+- `sample_ppp_mixture_sites_only(mop; rng)` computes species intensities via quadrature
+- `sample_ppp_mixture_sites_only(mop, γ; rng)` uses precomputed species intensities
 """
-function sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities{d};
-                                        n_samples::Int=10000,
+function sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities{d}, γ::Vector{Float64};
                                         rng::AbstractRNG=Random.default_rng()) where d
-    labeled = sample_ppp_mixture(mop; n_samples=n_samples, rng=rng)
+    labeled = sample_ppp_mixture(mop, γ; rng=rng)
+    return [site for (_, site) in labeled]
+end
+
+# Convenience method
+function sample_ppp_mixture_sites_only(mop::MixtureOfProductIntensities{d};
+                                        rng::AbstractRNG=Random.default_rng()) where d
+    labeled = sample_ppp_mixture(mop; rng=rng)
     return [site for (_, site) in labeled]
 end
 
@@ -526,29 +568,52 @@ function _sample_site_from_intensity(ρ::MixtureOfProductIntensities{d};
 end
 
 """
-    sample_edge_centric_ppp(ρ_source, ρ_target; rng=Random.default_rng()) -> FullEdgeCentricSample
+    sample_edge_centric_ppp(ρ_source, ρ_target; C_edge=nothing, rng=Random.default_rng()) -> FullEdgeCentricSample
 
 Convenience function to sample edge-centric edges directly from source/target intensities.
 
 Automatically constructs a ScaledProductEdgeIntensity and samples from it.
+
+For repeated sampling, precompute C_edge and pass it:
+```julia
+C_S = total_intensity(ρ_source)
+C_T = total_intensity(ρ_target)
+C_edge = (C_S + C_T) / 2
+for _ in 1:n_reps
+    edges = sample_edge_centric_ppp(ρ_source, ρ_target; C_edge=C_edge, rng=rng)
+end
+```
 """
 function sample_edge_centric_ppp(ρ_source::AbstractIntensity{d}, ρ_target::AbstractIntensity{d};
-                                  n_samples::Int=10000,
+                                  C_edge::Union{Nothing, Float64}=nothing,
                                   rng::AbstractRNG=Random.default_rng()) where d
-    ei = ScaledProductEdgeIntensity(ρ_source, ρ_target; n_samples=n_samples, rng=rng)
+    ei = ScaledProductEdgeIntensity(ρ_source, ρ_target; C_edge=C_edge)
     return sample_edge_centric(ei; rng=rng)
 end
 
 """
-    sample_edge_centric_symmetric(ρ; rng=Random.default_rng()) -> FullEdgeCentricSample
+    sample_edge_centric_symmetric(ρ; C_edge=nothing, rng=Random.default_rng()) -> FullEdgeCentricSample
 
 Sample edge-centric edges with symmetric source/target distribution.
 
 Both source and target are sampled from the same intensity ρ.
+
+For repeated sampling, precompute C_edge and pass it:
+```julia
+C = total_intensity(ρ)
+C_edge = C / 2
+for _ in 1:n_reps
+    edges = sample_edge_centric_symmetric(ρ; C_edge=C_edge, rng=rng)
+end
+```
 """
 function sample_edge_centric_symmetric(ρ::AbstractIntensity{d};
-                                        n_samples::Int=10000,
+                                        C_edge::Union{Nothing, Float64}=nothing,
                                         rng::AbstractRNG=Random.default_rng()) where d
-    ei = SymmetricEdgeIntensity(ρ; n_samples=n_samples, rng=rng)
+    if isnothing(C_edge)
+        ei = SymmetricEdgeIntensity(ρ)
+    else
+        ei = ScaledProductEdgeIntensity{d}(ρ, ρ, C_edge)
+    end
     return sample_edge_centric(ei; rng=rng)
 end

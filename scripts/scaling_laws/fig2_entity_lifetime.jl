@@ -64,11 +64,12 @@ end
 
 
 # Sample and simulate intermediate regime
-function simulate_intermediate(ρ, Λ, μ, W; rng=Random.default_rng())
+# Accepts precomputed c_G, c_R for performance when called repeatedly
+function simulate_intermediate(ρ, c_G, c_R, Λ, μ, W; rng=Random.default_rng())
     # Sample sites from PPP - the count IS the Poisson sample
     # Note: sample_ppp_product internally samples N ~ Poisson(Λ) where Λ = c_G * c_R
     # We don't sample N separately to avoid bias from min(N1, N2) < E[N]
-    sites = sample_ppp_product(ρ; rng=rng)
+    sites = sample_ppp_product(ρ, c_G, c_R; rng=rng)
     N = length(sites)
 
     if N == 0
@@ -118,7 +119,11 @@ using LinearAlgebra: dot
 # Create intensities (using library function)
 rng_setup = MersenneTwister(42)
 ρ_G, ρ_R, ρ = create_calibrated_product_intensity(LAMBDA; rng=rng_setup)
-stats = marginal_stats(ρ; rng=rng_setup)
+stats = marginal_stats(ρ)
+
+# Precompute total intensities for fast repeated sampling
+c_G = total_intensity(ρ.ρ_G)
+c_R = total_intensity(ρ.ρ_R)
 
 println("\nIntensity stats:")
 println("  E[N] = ", round(stats.E_N, digits=2))
@@ -144,7 +149,7 @@ for μ in MU_VALUES
             print("  ", rep, "/", N_REPS, "\r")
         end
         rng = MersenneTwister(10000 * findfirst(==(μ), MU_VALUES) + rep)
-        N, opp, edges = simulate_intermediate(ρ, stats.E_N, μ, W; rng=rng)
+        N, opp, edges = simulate_intermediate(ρ, c_G, c_R, stats.E_N, μ, W; rng=rng)
         N_samples[rep] = N
         opp_samples[rep] = opp
         edge_samples[rep] = edges
@@ -271,9 +276,9 @@ for (idx, μ) in enumerate(μ_samples)
     ax = Axis(fig4[1, idx], aspect=DataAspect(), title=titles[idx])
     draw_Bd_plus_boundary!(ax)
 
-    # Generate one sample graph
+    # Generate one sample graph (using precomputed intensities)
     rng = MersenneTwister(42 + idx)
-    sites = sample_ppp_product(ρ; rng=rng)
+    sites = sample_ppp_product(ρ, c_G, c_R; rng=rng)
     N = length(sites)
 
     if N > 0

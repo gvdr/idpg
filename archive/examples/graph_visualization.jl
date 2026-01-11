@@ -39,7 +39,7 @@ println("\n--- Setting Up Intensity ---")
 )
 
 ρ = ProductIntensity(ρ_G, ρ_R)
-stats = marginal_stats(ρ; rng=rng)
+stats = marginal_stats(ρ)
 
 println("Expected nodes E[N]: ", round(stats.E_N, digits=2))
 println("Expected edges E[|E|]: ", round(stats.E_edges_node_centric, digits=1))

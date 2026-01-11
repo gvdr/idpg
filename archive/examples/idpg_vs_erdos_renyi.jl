@@ -115,7 +115,7 @@ for config in configs
     println("=" ^ 50)
 
     ρ = ProductIntensity(config.ρ_G, config.ρ_R)
-    stats = marginal_stats(ρ; rng=rng)
+    stats = marginal_stats(ρ)
     println("Expected N: ", round(stats.E_N, digits=1), ", conn prob: ", round(stats.avg_conn_prob, digits=3))
 
     # Metrics storage

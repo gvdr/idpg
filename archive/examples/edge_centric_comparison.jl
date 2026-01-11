@@ -50,7 +50,7 @@ println("=" ^ 70)
 ρ = ProductIntensity(ρ_G, ρ_R)
 
 # Compute theoretical statistics
-stats = marginal_stats(ρ; rng=rng)
+stats = marginal_stats(ρ)
 
 println("\n--- Theoretical Statistics ---")
 println("c_G (green total intensity): " * string(round(stats.c_G, digits=2)))
@@ -74,7 +74,7 @@ println("Ratio node/encounter = E[N] = " * string(round(stats.E_N, digits=2)))
 println("Ratio node/pairing = 2*E[N] = " * string(round(2 * stats.E_N, digits=2)))
 
 # Create symmetric edge intensity for pairing model
-ei = SymmetricEdgeIntensity(ρ; rng=rng)
+ei = SymmetricEdgeIntensity(ρ)
 println("\nSymmetricEdgeIntensity: C_edge = E[N]/2 = " * string(round(ei.C_edge, digits=2)))
 
 # Monte Carlo validation

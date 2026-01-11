@@ -32,7 +32,7 @@ theoretical = Dict{Float64, NamedTuple}()
 for Λ in LAMBDA_VALUES
     rng = MersenneTwister(42)
     ρ_G, ρ_R, ρ = create_calibrated_product_intensity(Λ; rng=rng)
-    stats = marginal_stats(ρ; n_samples=20000, rng=rng)
+    stats = marginal_stats(ρ)
 
     theoretical[Λ] = (
         E_N = stats.E_N,
@@ -69,7 +69,11 @@ for Λ in LAMBDA_VALUES
     # Create intensities and edge intensity once
     rng_setup = MersenneTwister(42)
     ρ_G, ρ_R, ρ = create_calibrated_product_intensity(Λ; rng=rng_setup)
-    ei = SymmetricEdgeIntensity(ρ; rng=rng_setup)
+    ei = SymmetricEdgeIntensity(ρ)
+
+    # Precompute total intensities for fast repeated sampling
+    c_G = total_intensity(ρ.ρ_G)
+    c_R = total_intensity(ρ.ρ_R)
 
     for rep in 1:N_REPS
         if rep % 200 == 0
@@ -77,8 +81,8 @@ for Λ in LAMBDA_VALUES
         end
         rng = MersenneTwister(1000 * Int(Λ) + rep)
 
-        # Node-centric sampling
-        sites = sample_ppp_product(ρ; rng=rng)
+        # Node-centric sampling (using precomputed intensities)
+        sites = sample_ppp_product(ρ, c_G, c_R; rng=rng)
         N_samples[rep] = length(sites)
 
         if length(sites) > 0
@@ -228,7 +232,7 @@ println("Saved fig1_3_loglog_scaling.png")
 println("\nGenerating sample graphs for Λ = 50...")
 rng_viz = MersenneTwister(12345)
 ρ_G_viz, ρ_R_viz, ρ_viz = create_calibrated_product_intensity(50.0; rng=rng_viz)
-ei_viz = SymmetricEdgeIntensity(ρ_viz; rng=rng_viz)
+ei_viz = SymmetricEdgeIntensity(ρ_viz)
 
 # Sample node-centric
 sites_viz = sample_ppp_product(ρ_viz; rng=rng_viz)
