@@ -37,8 +37,7 @@ idpg/
 │       ├── Intensity.jl     # Intensity functions
 │       ├── Sampling.jl      # Poisson point process sampling
 │       ├── GraphGeneration.jl
-│       ├── PDEEvolution.jl  # Finite difference PDE solver
-│       ├── PDESciML.jl      # SciML-based PDE solver
+│       ├── PDEEvolution.jl  # PDE solver (OrdinaryDiffEq)
 │       ├── Visualization.jl
 │       └── EcologicalUtils.jl
 ├── scripts/
