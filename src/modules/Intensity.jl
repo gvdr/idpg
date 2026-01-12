@@ -472,6 +472,8 @@ Returns a named tuple with:
 - per_species: Vector of per-species stats (c_G, c_R, μ̃_G, μ̃_R, avg_conn_prob)
 - E_N: Expected total sites = C
 - E_edges_edge_centric: Expected edges = (E[N]/2) · E[g·r]
+- μ̃_G: Global normalized mean G (for cross-connectivity calculations)
+- μ̃_R: Global normalized mean R (for cross-connectivity calculations)
 """
 function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-4) where d
     M = length(mop.species)
@@ -479,6 +481,10 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
     # Compute per-species statistics
     per_species = Vector{NamedTuple}(undef, M)
     γ = Vector{Float64}(undef, M)
+
+    # Accumulators for global normalized means (for cross-connectivity calculations)
+    global_μ_G = zeros(d)
+    global_μ_R = zeros(d)
 
     for (m, species) in enumerate(mop.species)
         c_G = total_intensity(species.ρ_G; reltol=reltol)
@@ -489,7 +495,14 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
         μ̃_R = μ_R ./ c_R
         avg_conn_prob = dot(μ̃_G, μ̃_R)
 
-        γ[m] = c_G * c_R
+        γ_m = c_G * c_R
+        γ[m] = γ_m
+
+        # Accumulate for global mean: E[g] = Σ_m (γ_m/C) μ̃_{G,m}
+        # We accumulate γ_m * μ̃_{G,m} and divide by C at the end
+        global_μ_G .+= γ_m .* μ̃_G
+        global_μ_R .+= γ_m .* μ̃_R
+
         per_species[m] = (
             c_G = c_G,
             c_R = c_R,
@@ -502,7 +515,11 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
     C = sum(γ)
     species_probs = γ ./ C
 
-    # Weighted average connection probability
+    # Compute global normalized means for cross-connectivity
+    μ̃_G_mix = SVector{d, Float64}(global_μ_G ./ C)
+    μ̃_R_mix = SVector{d, Float64}(global_μ_R ./ C)
+
+    # Weighted average connection probability (for internal/symmetric case)
     avg_conn_prob = sum(species_probs[m] * per_species[m].avg_conn_prob for m in 1:M)
 
     # Edge-centric: E[N]/2 opportunities, each accepts with prob E[g·r]
@@ -515,7 +532,10 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
         per_species = per_species,
         E_N = C,
         avg_conn_prob = avg_conn_prob,
-        E_edges_edge_centric = E_edges
+        E_edges_edge_centric = E_edges,
+        # Global normalized means for cross-connectivity calculations
+        μ̃_G = μ̃_G_mix,
+        μ̃_R = μ̃_R_mix
     )
 end
 
@@ -695,10 +715,10 @@ function marginal_stats(ei::ScaledProductEdgeIntensity{d}; reltol::Float64=1e-4)
     stats_S = marginal_stats(ei.ρ_source; reltol=reltol)
     stats_T = marginal_stats(ei.ρ_target; reltol=reltol)
 
-    # Compute cross-distribution connection probability using dispatch
-    avg_conn_prob = cross_avg_conn_prob(stats_S, stats_T, ei.ρ_source, ei.ρ_target)
+    # Cross-connectivity: E[g_source · r_target] = E[g_source] · E[r_target]
+    # Both ProductIntensity and MixtureOfProductIntensities now have μ̃_G and μ̃_R fields
+    avg_conn_prob = dot(stats_S.μ̃_G, stats_T.μ̃_R)
 
-    # Extract total intensities (E_N present in both ProductIntensity and MixtureOfProductIntensities stats)
     C_source = stats_S.E_N
     C_target = stats_T.E_N
 
@@ -710,27 +730,6 @@ function marginal_stats(ei::ScaledProductEdgeIntensity{d}; reltol::Float64=1e-4)
         avg_conn_prob = avg_conn_prob,
         E_edges = ei.C_edge * avg_conn_prob
     )
-end
-
-"""
-Compute expected connection probability E[g_source · r_target] for cross-distribution pairs.
-Uses multiple dispatch to handle different intensity type combinations.
-"""
-function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::ProductIntensity)
-    return dot(stats_S.μ̃_G, stats_T.μ̃_R)
-end
-
-function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::MixtureOfProductIntensities)
-    # Approximate: use geometric mean of within-population connection probs
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
-end
-
-function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::MixtureOfProductIntensities)
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
-end
-
-function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::ProductIntensity)
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
 end
 
 # ============================================================================
