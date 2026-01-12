@@ -169,6 +169,19 @@ function sample_ppp_product(ρ::ProductIntensity{d};
 end
 
 """
+Internal struct to wrap a time-varying intensity at a fixed time t.
+Allows passing to sample_ppp as an AbstractIntensity.
+"""
+struct FrozenTimeIntensity{d, F} <: AbstractIntensity{d}
+    ρ_func::F
+    t::Float64
+end
+
+function (fti::FrozenTimeIntensity{d})(g::AbstractVector, r::AbstractVector) where d
+    return fti.ρ_func(g, r, fti.t)
+end
+
+"""
     sample_ppp_temporal(ρ, t_start, t_end; dt=0.01, rng=Random.default_rng())
 
 Sample from time-varying intensity over a time interval.
@@ -177,16 +190,23 @@ Returns list of (site, time) tuples.
 NOTE: This is a simple implementation that discretizes time.
 For more accurate temporal point process simulation, consider using JumpProcesses.jl.
 """
-function sample_ppp_temporal(ρ, t_start::Real, t_end::Real;
+function sample_ppp_temporal(ρ::TimeVaryingIntensity{d}, t_start::Real, t_end::Real;
                              dt::Float64=0.01,
-                             rng::AbstractRNG=Random.default_rng())
-    results = Tuple{InteractionSite, Float64}[]
+                             rng::AbstractRNG=Random.default_rng()) where d
+    results = Tuple{InteractionSite{d}, Float64}[]
 
     t = t_start
     while t < t_end
         # Sample from frozen intensity at time t
         # This is an approximation - proper implementation would use thinning over space-time
-        sites = sample_ppp(ρ.ρ; rng=rng)
+        # Create a temporary intensity wrapper for time t
+        frozen_ρ = FrozenTimeIntensity{d, typeof(ρ.ρ)}(ρ.ρ, t)
+
+        # We need to estimate max intensity for this time slice
+        # Since t changes slowly, maybe we could reuse λ_max?
+        # For safety, re-estimate.
+        sites = sample_ppp(frozen_ρ; rng=rng)
+
         for site in sites
             if rand(rng) < dt  # Thin by dt to account for time slice
                 push!(results, (site, t))

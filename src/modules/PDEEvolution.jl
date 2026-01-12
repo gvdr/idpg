@@ -94,25 +94,54 @@ function get_neighbors(grid::BdPlusGrid{d}, point_idx::Int) where d
 end
 
 """
-    laplacian_stencil(grid::BdPlusGrid{d}, ρ::AbstractVector, point_idx::Int) -> Float64
+    laplacian_stencil(grid::BdPlusGrid{d}, ρ::AbstractVector, point_idx::Int; boundary::Symbol=:absorbing) -> Float64
 
 Compute discrete Laplacian ∇²ρ at a point using finite differences.
+Supports :absorbing (Dirichlet, ρ=0 outside) and :reflecting (Neumann, ∂ρ/∂n=0) boundary conditions.
 """
-function laplacian_stencil(grid::BdPlusGrid{d}, ρ::AbstractVector, point_idx::Int) where d
-    neighbors = get_neighbors(grid, point_idx)
-    n_neighbors = length(neighbors)
-
-    if n_neighbors == 0
-        return 0.0
-    end
-
+function laplacian_stencil(grid::BdPlusGrid{d}, ρ::AbstractVector, point_idx::Int; boundary::Symbol=:absorbing) where d
+    idx = grid.Bd_plus_to_grid[point_idx]
     h² = grid.h^2
     ρ_center = ρ[point_idx]
 
-    # Standard Laplacian stencil: ∇²ρ ≈ Σ(ρ_neighbor - ρ_center) / h²
     ∇²ρ = 0.0
-    for neighbor_idx in neighbors
-        ∇²ρ += ρ[neighbor_idx] - ρ_center
+
+    # Iterate over all dimensions and directions
+    for dim in 1:d
+        for δ in [-1, 1]
+            # Neighbor index
+            neighbor_tuple = ntuple(i -> i == dim ? idx[i] + δ : idx[i], d)
+
+            # Check if neighbor is within the bounding box
+            if all(1 <= neighbor_tuple[i] <= grid.resolution for i in 1:d)
+                neighbor_idx = CartesianIndex(neighbor_tuple)
+
+                if haskey(grid.grid_to_Bd_plus, neighbor_idx)
+                    # Neighbor is inside B^d_+
+                    n_idx = grid.grid_to_Bd_plus[neighbor_idx]
+                    ∇²ρ += ρ[n_idx] - ρ_center
+                else
+                    # Neighbor is inside box but outside B^d_+ (curved boundary)
+                    if boundary == :absorbing
+                        # ρ_outside = 0, so contribution is (0 - ρ_center)
+                        ∇²ρ += -ρ_center
+                    elseif boundary == :reflecting
+                        # No flux: term (ρ_neighbor - ρ_center) becomes 0
+                        # effectively assuming ρ_neighbor = ρ_center
+                        ∇²ρ += 0.0
+                    end
+                end
+            else
+                # Neighbor is outside bounding box (coordinate faces x_k = 0 or 1)
+                # B^d_+ only includes non-negative coords.
+                # If we hit coordinate face (x < 0), we are definitely at boundary.
+                if boundary == :absorbing
+                    ∇²ρ += -ρ_center
+                elseif boundary == :reflecting
+                    ∇²ρ += 0.0
+                end
+            end
+        end
     end
 
     return ∇²ρ / h²
@@ -160,10 +189,10 @@ end
 """
 Create the RHS function for the diffusion equation: ∂ρ/∂t = D∇²ρ
 """
-function make_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64) where d
+function make_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64, boundary::Symbol) where d
     function diffusion_rhs!(dρ, ρ, p, t)
         for i in eachindex(ρ)
-            dρ[i] = D * laplacian_stencil(grid, ρ, i)
+            dρ[i] = D * laplacian_stencil(grid, ρ, i; boundary=boundary)
         end
     end
     return diffusion_rhs!
@@ -209,10 +238,10 @@ end
 """
 Create the RHS function for reaction-diffusion: ∂ρ/∂t = D∇²ρ + f(ρ)
 """
-function make_reaction_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64, f::F) where {d, F}
+function make_reaction_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64, f::F, boundary::Symbol) where {d, F}
     function reaction_diffusion_rhs!(dρ, ρ, p, t)
         for i in eachindex(ρ)
-            ∇²ρ = laplacian_stencil(grid, ρ, i)
+            ∇²ρ = laplacian_stencil(grid, ρ, i; boundary=boundary)
             reaction = f(ρ[i])
             dρ[i] = D * ∇²ρ + reaction
         end
@@ -227,7 +256,8 @@ end
 """
     evolve_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
                      D::Float64, tspan::Tuple;
-                     solver=Tsit5(), saveat=nothing, kwargs...) -> ODESolution
+                     solver=Tsit5(), saveat=nothing,
+                     boundary::Symbol=:absorbing, kwargs...) -> ODESolution
 
 Evolve intensity via diffusion equation: ∂ρ/∂t = D∇²ρ
 
@@ -240,6 +270,7 @@ Uses OrdinaryDiffEq.jl for adaptive time-stepping and error control.
 - `tspan`: Time span as (t₀, t_final)
 - `solver`: ODE solver (default: Tsit5 for non-stiff; use ROCK4 or Rodas5P for stiff)
 - `saveat`: Times to save solution (default: automatic)
+- `boundary`: Boundary condition (:absorbing or :reflecting)
 - `kwargs...`: Additional arguments passed to solve()
 
 # Returns
@@ -249,7 +280,7 @@ ODE solution object. Access solution at time t via sol(t).
 ```julia
 grid = create_Bd_plus_grid(2, 20)
 ρ₀ = [exp(-10 * norm(p - [0.5, 0.5])^2) for p in grid.points]
-sol = evolve_diffusion(ρ₀, grid, 0.01, (0.0, 1.0))
+sol = evolve_diffusion(ρ₀, grid, 0.01, (0.0, 1.0); boundary=:reflecting)
 ρ_final = sol.u[end]
 ```
 """
@@ -257,8 +288,9 @@ function evolve_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
                           D::Float64, tspan::Tuple;
                           solver=Tsit5(),
                           saveat=nothing,
+                          boundary::Symbol=:absorbing,
                           kwargs...) where d
-    rhs! = make_diffusion_rhs(grid, D)
+    rhs! = make_diffusion_rhs(grid, D, boundary)
     prob = ODEProblem(rhs!, copy(ρ₀), tspan)
 
     solve_kwargs = Dict{Symbol, Any}(kwargs)
@@ -281,7 +313,7 @@ function evolve_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                            D::Float64, dt::Float64, n_steps::Int;
                            boundary::Symbol=:absorbing) where d
     t_final = dt * n_steps
-    sol = evolve_diffusion(ρ, grid, D, (0.0, t_final))
+    sol = evolve_diffusion(ρ, grid, D, (0.0, t_final); boundary=boundary)
     copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
@@ -389,7 +421,8 @@ end
 """
     evolve_reaction_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
                               D::Float64, f, tspan::Tuple;
-                              solver=Rodas5P(), saveat=nothing, kwargs...) -> ODESolution
+                              solver=Rodas5P(), saveat=nothing,
+                              boundary::Symbol=:absorbing, kwargs...) -> ODESolution
 
 Evolve intensity via reaction-diffusion equation: ∂ρ/∂t = D∇²ρ + f(ρ)
 
@@ -400,20 +433,22 @@ Evolve intensity via reaction-diffusion equation: ∂ρ/∂t = D∇²ρ + f(ρ)
 - `f`: Callable f(ρ) → rate of change
 - `tspan`: Time span as (t₀, t_final)
 - `solver`: ODE solver (default: Rodas5P for stiff reaction-diffusion)
+- `boundary`: Boundary condition (:absorbing or :reflecting)
 
 # Example
 ```julia
 # Logistic growth with diffusion
 f_logistic(ρ) = 0.1 * ρ * (1 - ρ / 10)
-sol = evolve_reaction_diffusion(ρ₀, grid, 0.01, f_logistic, (0.0, 10.0))
+sol = evolve_reaction_diffusion(ρ₀, grid, 0.01, f_logistic, (0.0, 10.0); boundary=:reflecting)
 ```
 """
 function evolve_reaction_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
                                    D::Float64, f::F, tspan::Tuple;
                                    solver=Rodas5P(),
                                    saveat=nothing,
+                                   boundary::Symbol=:absorbing,
                                    kwargs...) where {d, F}
-    rhs! = make_reaction_diffusion_rhs(grid, D, f)
+    rhs! = make_reaction_diffusion_rhs(grid, D, f, boundary)
     prob = ODEProblem(rhs!, copy(ρ₀), tspan)
 
     solve_kwargs = Dict{Symbol, Any}(kwargs)
@@ -435,7 +470,7 @@ function evolve_reaction_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
                                     D::Float64, f::F, dt::Float64, n_steps::Int;
                                     boundary::Symbol=:absorbing) where {d, F}
     t_final = dt * n_steps
-    sol = evolve_reaction_diffusion(ρ, grid, D, f, (0.0, t_final))
+    sol = evolve_reaction_diffusion(ρ, grid, D, f, (0.0, t_final); boundary=boundary)
     copyto!(ρ, max.(sol.u[end], 0.0))
     return ρ
 end
@@ -451,6 +486,7 @@ end
                      t_final::Float64=1.0,
                      sample_times::AbstractVector=0.0:0.1:1.0,
                      solver=nothing,
+                     boundary::Symbol=:absorbing,
                      rng=Random.default_rng())
 
 Evolve intensity and track statistics over time using OrdinaryDiffEq.
@@ -465,6 +501,7 @@ Evolve intensity and track statistics over time using OrdinaryDiffEq.
 - `t_final`: Final time
 - `sample_times`: Times at which to record statistics
 - `solver`: ODE solver (auto-selected if nothing)
+- `boundary`: Boundary condition (:absorbing or :reflecting)
 - `rng`: Random number generator
 
 # Returns
@@ -481,7 +518,8 @@ function evolve_and_track(ρ_initial::F, grid::BdPlusGrid{d};
                           t_final::Float64=1.0,
                           sample_times::AbstractVector=0.0:0.1:1.0,
                           solver=nothing,
-                          rng::AbstractRNG=Random.default_rng()) where {d, F}
+                          boundary::Symbol=:absorbing,
+                          rng=Random.default_rng()) where {d, F}
 
     # Initialize
     ρ₀ = [ρ_initial(p) for p in grid.points]
@@ -490,7 +528,7 @@ function evolve_and_track(ρ_initial::F, grid::BdPlusGrid{d};
     # Select solver and solve
     if pde_type == :diffusion
         default_solver = isnothing(solver) ? Tsit5() : solver
-        sol = evolve_diffusion(ρ₀, grid, D, tspan; solver=default_solver, saveat=sample_times)
+        sol = evolve_diffusion(ρ₀, grid, D, tspan; solver=default_solver, saveat=sample_times, boundary=boundary)
     elseif pde_type == :advection
         @assert !isnothing(v⃗) "Velocity v⃗ required for advection"
         default_solver = isnothing(solver) ? Tsit5() : solver
@@ -498,7 +536,7 @@ function evolve_and_track(ρ_initial::F, grid::BdPlusGrid{d};
     elseif pde_type == :reaction_diffusion
         @assert !isnothing(f) "Reaction function f required for reaction-diffusion"
         default_solver = isnothing(solver) ? Rodas5P() : solver
-        sol = evolve_reaction_diffusion(ρ₀, grid, D, f, tspan; solver=default_solver, saveat=sample_times)
+        sol = evolve_reaction_diffusion(ρ₀, grid, D, f, tspan; solver=default_solver, saveat=sample_times, boundary=boundary)
     else
         error("Unknown PDE type: " * string(pde_type))
     end

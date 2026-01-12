@@ -480,6 +480,9 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
     per_species = Vector{NamedTuple}(undef, M)
     γ = Vector{Float64}(undef, M)
 
+    global_μ_G = zeros(d)
+    global_μ_R = zeros(d)
+
     for (m, species) in enumerate(mop.species)
         c_G = total_intensity(species.ρ_G; reltol=reltol)
         c_R = total_intensity(species.ρ_R; reltol=reltol)
@@ -489,7 +492,33 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
         μ̃_R = μ_R ./ c_R
         avg_conn_prob = dot(μ̃_G, μ̃_R)
 
-        γ[m] = c_G * c_R
+        γ_m = c_G * c_R
+        γ[m] = γ_m
+
+        # Accumulate global intensity-weighted mean
+        # μ_G is ∫ g * ρ_Gm(g) dg
+        # For mixture: ∫ g * Σ ρ_Gm(g) dg = Σ ∫ g * ρ_Gm(g) dg = Σ μ_G
+        # BUT this is wrong because γ_m = c_Gm * c_Rm.
+        # The global mean depends on the TOTAL intensity of the G marginal.
+        # ρ_G_mix = Σ ρ_Gm. Total c_G_mix = Σ c_Gm.
+        # Global μ_G = Σ μ_Gm.
+        # The question is how these are weighted in the MIXTURE OF PRODUCTS.
+        # In MixtureOfProducts, we sample species m with weight γ_m.
+        # Once species m is picked, we sample g ~ ρ_Gm (normalized) and r ~ ρ_Rm (normalized).
+        # So the effective marginal distribution of g is:
+        # P(g) = Σ P(m) P(g|m) = Σ (γ_m/C) (ρ_Gm(g) / c_Gm)
+        # Therefore mean g = ∫ g P(g) dg = Σ (γ_m/C) (1/c_Gm) ∫ g ρ_Gm(g) dg
+        # = Σ (γ_m/C) (1/c_Gm) μ_Gm = Σ (γ_m/C) μ̃_Gm
+        # Wait, γ_m = c_Gm * c_Rm. So γ_m/c_Gm = c_Rm.
+        # So mean g = (1/C) Σ c_Rm μ_Gm.
+        # Let's verify dimensions: μ_Gm has mass c_Gm.
+        # No, μ_Gm as returned by intensity_weighted_mean is ∫ g ρ(g).
+        # So μ_Gm = c_Gm * μ̃_Gm.
+        # So mean g = (1/C) Σ c_Rm * (c_Gm * μ̃_Gm) = (1/C) Σ γ_m μ̃_Gm.
+
+        global_μ_G .+= γ_m .* μ̃_G
+        global_μ_R .+= γ_m .* μ̃_R
+
         per_species[m] = (
             c_G = c_G,
             c_R = c_R,
@@ -502,7 +531,11 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
     C = sum(γ)
     species_probs = γ ./ C
 
-    # Weighted average connection probability
+    # Normalize global means
+    μ̃_G_mix = SVector{d, Float64}(global_μ_G ./ C)
+    μ̃_R_mix = SVector{d, Float64}(global_μ_R ./ C)
+
+    # Weighted average connection probability (internal connectivity)
     avg_conn_prob = sum(species_probs[m] * per_species[m].avg_conn_prob for m in 1:M)
 
     # Edge-centric: E[N]/2 opportunities, each accepts with prob E[g·r]
@@ -515,7 +548,10 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
         per_species = per_species,
         E_N = C,
         avg_conn_prob = avg_conn_prob,
-        E_edges_edge_centric = E_edges
+        E_edges_edge_centric = E_edges,
+        # Added global means for cross-connectivity calculations
+        μ̃_G = μ̃_G_mix,
+        μ̃_R = μ̃_R_mix
     )
 end
 
@@ -721,16 +757,16 @@ function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::ProductInte
 end
 
 function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::MixtureOfProductIntensities)
-    # Approximate: use geometric mean of within-population connection probs
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
+    # Correct: use dot product of global normalized means
+    return dot(stats_S.μ̃_G, stats_T.μ̃_R)
 end
 
 function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::MixtureOfProductIntensities)
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
+    return dot(stats_S.μ̃_G, stats_T.μ̃_R)
 end
 
 function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::ProductIntensity)
-    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
+    return dot(stats_S.μ̃_G, stats_T.μ̃_R)
 end
 
 # ============================================================================

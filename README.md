@@ -44,7 +44,6 @@ idpg/
 │   ├── scaling_laws/        # Validation simulations (Figures 1, 2, 6)
 │   └── heat_maps/           # Paper figure generation (Figures A-E)
 ├── test/                    # Unit tests
-├── docs/                    # Documentation and manuscript
 └── output/                  # Generated figures and data
 ```
 
