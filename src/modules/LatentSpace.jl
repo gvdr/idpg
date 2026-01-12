@@ -70,6 +70,7 @@ function project_to_Bd_plus(x::AbstractVector{T}) where T
 end
 
 """
+    uniform_Bd_plus_sample(::Val{d}; rng=Random.default_rng()) -> LatentPoint{d}
     uniform_Bd_plus_sample(d::Int; rng=Random.default_rng()) -> LatentPoint{d}
 
 Sample uniformly from the non-negative unit ball B^d_+.
@@ -80,11 +81,18 @@ absolute values of the Gaussians restricts to the positive orthant B^d_+.
 
 This is O(d) time with no rejection, unlike rejection sampling which becomes
 impractical for d > 10 (acceptance rate ~ (π/6)^(d/2) / Γ(d/2 + 1)).
+
+The `Val{d}` version is type-stable and should be preferred in hot loops.
 """
+function uniform_Bd_plus_sample(::Val{d}; rng::AbstractRNG=Random.default_rng()) where d
+    x = abs.(randn(rng, SVector{d, Float64}))  # folded normal: |N(0,1)| in each coordinate
+    e = 2 * randexp(rng)                        # Exp(1/2) = 2 * Exp(1)
+    return x ./ sqrt(e + sum(abs2, x))
+end
+
+# Convenience wrapper for runtime dimension (type-unstable)
 function uniform_Bd_plus_sample(d::Int; rng::AbstractRNG=Random.default_rng())
-    x = abs.(randn(rng, d))           # folded normal: |N(0,1)| in each coordinate
-    e = 2 * randexp(rng)              # Exp(1/2) = 2 * Exp(1)
-    return SVector{d, Float64}(x ./ sqrt(e + sum(abs2, x)))
+    return uniform_Bd_plus_sample(Val(d); rng=rng)
 end
 
 """
@@ -156,16 +164,20 @@ end
 #   x_d = r sin(φ₁) sin(φ₂) ... sin(φ_{d-1})
 
 """
+    hyperspherical_to_cartesian(::Val{d}, r::Real, angles::AbstractVector) -> LatentPoint{d}
     hyperspherical_to_cartesian(r::Real, angles::AbstractVector) -> LatentPoint
 
 Convert hyperspherical coordinates (r, φ₁, ..., φ_{d-1}) to Cartesian coordinates.
 
 # Arguments
+- `Val{d}`: (optional) dimension as type parameter for type stability
 - `r`: radius (distance from origin), must be ≥ 0
 - `angles`: vector of d-1 angles in radians
 
 # Returns
 - `LatentPoint{d}`: Cartesian coordinates as a static vector
+
+The `Val{d}` version is type-stable and should be preferred in hot loops.
 
 # Example
 ```julia
@@ -175,28 +187,32 @@ hyperspherical_to_cartesian(0.8, [π/4])  # ≈ [0.566, 0.566]
 # 3D: spherical coordinates (r=1, θ=π/4, φ=π/3)
 hyperspherical_to_cartesian(1.0, [π/4, π/3])  # ≈ [0.707, 0.354, 0.612]
 
-# 4D point
-hyperspherical_to_cartesian(0.9, [π/6, π/4, π/3])
+# Type-stable version (preferred in hot loops)
+hyperspherical_to_cartesian(Val(3), 1.0, angles)
 ```
 """
-function hyperspherical_to_cartesian(r::Real, angles::AbstractVector{<:Real})
-    d = length(angles) + 1
-    x = zeros(d)
-
+function hyperspherical_to_cartesian(::Val{d}, r::Real, angles::AbstractVector{<:Real}) where d
     if r == 0
-        return SVector{d, Float64}(x)
+        return zero(SVector{d, Float64})
     end
 
-    # Precompute cumulative product of sines
-    sin_prod = r  # running product: r * sin(φ₁) * sin(φ₂) * ...
+    # Use MVector for type-stable mutation, then convert to SVector
+    x = MVector{d, Float64}(undef)
+    sin_prod = Float64(r)
 
     for i in 1:d-1
         x[i] = sin_prod * cos(angles[i])
         sin_prod *= sin(angles[i])
     end
-    x[d] = sin_prod  # last coordinate is just the remaining product
+    x[d] = sin_prod
 
-    return SVector{d, Float64}(x)
+    return SVector(x)
+end
+
+# Convenience wrapper for runtime dimension (type-unstable)
+function hyperspherical_to_cartesian(r::Real, angles::AbstractVector{<:Real})
+    d = length(angles) + 1
+    return hyperspherical_to_cartesian(Val(d), r, angles)
 end
 
 """

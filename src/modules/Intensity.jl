@@ -184,11 +184,12 @@ function total_intensity(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
     end
 
     # d ≥ 2: use hyperspherical coordinates to avoid boundary discontinuity
+    valdim = Val{d}()
     function integrand_c(u, p)
         r = u[1]
         r < 1e-12 && return 0.0  # avoid singularity at origin
         θ = @view u[2:end]
-        x = hyperspherical_to_cartesian(r, θ)
+        x = hyperspherical_to_cartesian(valdim, r, θ)
         J = hyperspherical_jacobian(r, θ)
         return ρ(x) * J
     end
@@ -258,6 +259,7 @@ function intensity_weighted_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) whe
     end
 
     # d ≥ 2: integrate each component using hyperspherical coords
+    valdim = Val{d}()
     μ = zeros(d)
     solver = _select_quadrature_solver(d)
 
@@ -266,7 +268,7 @@ function intensity_weighted_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) whe
             r = u[1]
             r < 1e-12 && return 0.0  # avoid singularity at origin
             θ = @view u[2:end]
-            x = hyperspherical_to_cartesian(r, θ)
+            x = hyperspherical_to_cartesian(valdim, r, θ)
             J = hyperspherical_jacobian(r, θ)
             return x[k] * ρ(x) * J
         end

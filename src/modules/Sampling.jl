@@ -27,8 +27,9 @@ Used for thinning algorithm.
 function estimate_max_intensity(ρ::AbstractIntensity{d};
                                 n_samples::Int=1000,
                                 rng::AbstractRNG=Random.default_rng()) where d
+    valdim = Val{d}()
     max_val = maximum(
-        ρ(uniform_Bd_plus_sample(d; rng=rng), uniform_Bd_plus_sample(d; rng=rng))
+        ρ(uniform_Bd_plus_sample(valdim; rng=rng), uniform_Bd_plus_sample(valdim; rng=rng))
         for _ in 1:n_samples
     )
     # Add safety margin
@@ -44,11 +45,12 @@ function estimate_max_intensity(ρ::ProductIntensity{d};
                                 n_samples::Int=1000,
                                 rng::AbstractRNG=Random.default_rng()) where d
     # For product intensity, max is max_G * max_R
+    valdim = Val{d}()
     max_G = 0.0
     max_R = 0.0
     for _ in 1:n_samples
-        g = uniform_Bd_plus_sample(d; rng=rng)
-        r = uniform_Bd_plus_sample(d; rng=rng)
+        g = uniform_Bd_plus_sample(valdim; rng=rng)
+        r = uniform_Bd_plus_sample(valdim; rng=rng)
         max_G = max(max_G, ρ.ρ_G(g))
         max_R = max(max_R, ρ.ρ_R(r))
     end
@@ -91,11 +93,12 @@ function sample_ppp(ρ::AbstractIntensity{d}, λ_max::Float64;
     n_candidates = rand(rng, Poisson(λ_max * vol_Ω))
 
     # Sample candidates uniformly and thin
+    valdim = Val{d}()
     accepted = InteractionSite{d}[]
 
     for _ in 1:n_candidates
-        g = uniform_Bd_plus_sample(d; rng=rng)
-        r = uniform_Bd_plus_sample(d; rng=rng)
+        g = uniform_Bd_plus_sample(valdim; rng=rng)
+        r = uniform_Bd_plus_sample(valdim; rng=rng)
 
         # Accept with probability ρ(g,r) / λ_max
         if rand(rng) < ρ(g, r) / λ_max
