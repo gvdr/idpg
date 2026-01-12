@@ -17,7 +17,7 @@ rounding when constructing points on the sphere. Negativity is checked strictly
 (xi >= 0) since negative coordinates are qualitative errors, not numerical noise.
 """
 function in_Bd_plus(x::AbstractVector; tol::Float64=1e-10)
-    return all(xi -> xi >= 0, x) && norm(x) <= 1.0 + tol
+    return all(>=(0), x) && norm(x) <= 1.0 + tol
 end
 
 """
@@ -133,7 +133,7 @@ Returns x/||x|| if ||x|| > 0, otherwise returns zeros.
 """
 function angular_coordinates(x::AbstractVector)
     n = norm(x)
-    return n > 0 ? x ./ n : zeros(length(x))
+    return n > 0 ? x ./ n : zero(x)
 end
 
 # =============================================================================

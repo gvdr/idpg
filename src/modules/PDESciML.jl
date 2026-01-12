@@ -117,7 +117,7 @@ function solve_diffusion_mol_2d(u0::Matrix{Float64}, D::Float64, tspan::Tuple;
     times = sol[t]
     sol_array = sol[ρ(t, x, y)]
 
-    snapshots = []
+    snapshots = Matrix{Float64}[]
     for i in eachindex(times)
         u = copy(sol_array[i, :, :])
         if !isnothing(mask)
@@ -188,7 +188,7 @@ function solve_advection_mol_2d(u0::Matrix{Float64}, v::Vector{Float64}, tspan::
     times = sol[t]
     sol_array = sol[ρ(t, x, y)]
 
-    snapshots = []
+    snapshots = Matrix{Float64}[]
     for i in eachindex(times)
         u = copy(sol_array[i, :, :])
         if !isnothing(mask)
@@ -290,7 +290,7 @@ function solve_diffusion_mol_4d(u0::Array{Float64,4}, D::Float64, tspan::Tuple;
     times = sol[t]
     sol_array = sol[ρ(t, x1, x2, x3, x4)]
 
-    snapshots = []
+    snapshots = Array{Float64,4}[]
     for i in eachindex(times)
         # Extract spatial slice at time index i (first dimension is time)
         u = copy(sol_array[i, :, :, :, :])
@@ -381,7 +381,7 @@ function solve_advection_mol_4d(u0::Array{Float64,4}, v::Vector{Float64}, tspan:
     times = sol[t]
     sol_array = sol[ρ(t, x1, x2, x3, x4)]
 
-    snapshots = []
+    snapshots = Array{Float64,4}[]
     for i in eachindex(times)
         u = copy(sol_array[i, :, :, :, :])
         if !isnothing(mask)

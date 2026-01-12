@@ -391,7 +391,7 @@ Construct from paired vectors of G and R marginals for each species.
 """
 function MixtureOfProductIntensities(ρ_Gs::Vector{BdPlusMixture{d}}, ρ_Rs::Vector{BdPlusMixture{d}}) where d
     @assert length(ρ_Gs) == length(ρ_Rs) "Must have same number of G and R distributions"
-    species = [ProductIntensity(ρ_Gs[m], ρ_Rs[m]) for m in 1:length(ρ_Gs)]
+    species = [ProductIntensity(ρ_Gs[m], ρ_Rs[m]) for m in eachindex(ρ_Gs)]
     return MixtureOfProductIntensities{d}(species)
 end
 
@@ -501,10 +501,10 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
     species_probs = γ ./ C
 
     # Weighted average connection probability
-    weighted_avg_conn_prob = sum(species_probs[m] * per_species[m].avg_conn_prob for m in 1:M)
+    avg_conn_prob = sum(species_probs[m] * per_species[m].avg_conn_prob for m in 1:M)
 
     # Edge-centric: E[N]/2 opportunities, each accepts with prob E[g·r]
-    E_edges = (C / 2) * weighted_avg_conn_prob
+    E_edges = (C / 2) * avg_conn_prob
 
     return (
         γ = γ,
@@ -512,6 +512,7 @@ function marginal_stats(mop::MixtureOfProductIntensities{d}; reltol::Float64=1e-
         species_probs = species_probs,
         per_species = per_species,
         E_N = C,
+        avg_conn_prob = avg_conn_prob,
         E_edges_edge_centric = E_edges
     )
 end
@@ -692,23 +693,12 @@ function marginal_stats(ei::ScaledProductEdgeIntensity{d}; reltol::Float64=1e-4)
     stats_S = marginal_stats(ei.ρ_source; reltol=reltol)
     stats_T = marginal_stats(ei.ρ_target; reltol=reltol)
 
-    # For ProductIntensity, use the normalized means
-    # For MixtureOfProductIntensities, compute weighted average
-    if hasfield(typeof(stats_S), :μ̃_G)
-        # ProductIntensity case
-        μ̃_G_source = stats_S.μ̃_G
-        μ̃_R_target = stats_T.μ̃_R
-        avg_conn_prob = dot(μ̃_G_source, μ̃_R_target)
-    else
-        # MixtureOfProductIntensities case - use weighted average
-        avg_conn_prob_S = sum(stats_S.species_probs[m] * stats_S.per_species[m].avg_conn_prob for m in 1:length(stats_S.γ))
-        avg_conn_prob_T = sum(stats_T.species_probs[m] * stats_T.per_species[m].avg_conn_prob for m in 1:length(stats_T.γ))
-        # Approximate: use geometric mean of avg connection probs
-        avg_conn_prob = sqrt(avg_conn_prob_S * avg_conn_prob_T)
-    end
+    # Compute cross-distribution connection probability using dispatch
+    avg_conn_prob = cross_avg_conn_prob(stats_S, stats_T, ei.ρ_source, ei.ρ_target)
 
-    C_source = hasfield(typeof(stats_S), :E_N) ? stats_S.E_N : stats_S.C
-    C_target = hasfield(typeof(stats_T), :E_N) ? stats_T.E_N : stats_T.C
+    # Extract total intensities (E_N present in both ProductIntensity and MixtureOfProductIntensities stats)
+    C_source = stats_S.E_N
+    C_target = stats_T.E_N
 
     return (
         C_edge = ei.C_edge,
@@ -718,6 +708,27 @@ function marginal_stats(ei::ScaledProductEdgeIntensity{d}; reltol::Float64=1e-4)
         avg_conn_prob = avg_conn_prob,
         E_edges = ei.C_edge * avg_conn_prob
     )
+end
+
+"""
+Compute expected connection probability E[g_source · r_target] for cross-distribution pairs.
+Uses multiple dispatch to handle different intensity type combinations.
+"""
+function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::ProductIntensity)
+    return dot(stats_S.μ̃_G, stats_T.μ̃_R)
+end
+
+function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::MixtureOfProductIntensities)
+    # Approximate: use geometric mean of within-population connection probs
+    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
+end
+
+function cross_avg_conn_prob(stats_S, stats_T, ::ProductIntensity, ::MixtureOfProductIntensities)
+    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
+end
+
+function cross_avg_conn_prob(stats_S, stats_T, ::MixtureOfProductIntensities, ::ProductIntensity)
+    return sqrt(stats_S.avg_conn_prob * stats_T.avg_conn_prob)
 end
 
 # ============================================================================
