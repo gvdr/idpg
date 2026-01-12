@@ -30,7 +30,7 @@ guild_idx = assign_site_to_guild(site, guild_means)
 ```
 """
 function assign_site_to_guild(site::InteractionSite, guild_full_means::AbstractVector)
-    site_full = vcat(Vector(site.g), Vector(site.r))  # 2d-dimensional
+    site_full = vcat(site.g, site.r)  # 2d-dimensional
     min_dist = Inf
     best_guild = 1
     for (i, full_mean) in enumerate(guild_full_means)
@@ -93,7 +93,7 @@ full_means = build_full_guild_means(means_G, means_R)
 """
 function build_full_guild_means(means_G::AbstractVector, means_R::AbstractVector)
     @assert length(means_G) == length(means_R) "means_G and means_R must have same length"
-    return [vcat(Vector(means_G[i]), Vector(means_R[i])) for i in 1:length(means_G)]
+    return [vcat(means_G[i], means_R[i]) for i in eachindex(means_G)]
 end
 
 """
@@ -122,7 +122,7 @@ function compute_foodweb_matrix(sample::FullEdgeCentricSample, guild_full_means:
     n_guilds = length(guild_full_means)
     edge_weights = zeros(n_guilds, n_guilds)
 
-    for k in 1:length(sample)
+    for k in eachindex(sample.source_sites)
         src_guild = assign_site_to_guild(sample.source_sites[k], guild_full_means)
         tgt_guild = assign_site_to_guild(sample.target_sites[k], guild_full_means)
         edge_weights[src_guild, tgt_guild] += 1
@@ -427,8 +427,8 @@ Apply Givens rotation in the (i,j) plane by angle θ to both centroid matrices.
 function apply_givens_rotation!(M_G::AbstractMatrix, M_R::AbstractMatrix, i::Int, j::Int, θ::Real)
     c, s = cos(θ), sin(θ)
     for M in (M_G, M_R)
-        col_i = M[:, i] .* c .- M[:, j] .* s
-        col_j = M[:, i] .* s .+ M[:, j] .* c
+        col_i = @. M[:, i] * c - M[:, j] * s
+        col_j = @. M[:, i] * s + M[:, j] * c
         M[:, i] .= col_i
         M[:, j] .= col_j
     end
@@ -533,12 +533,12 @@ function alternating_optimization!(M_G::AbstractMatrix, M_R::AbstractMatrix,
     for iter in 1:max_iter
         # Fix M_R, optimize M_G
         for i in 1:n_G
-            M_G[i, :] .= solve_constrained_ls(M_R, K_star[i, :])
+            M_G[i, :] .= solve_constrained_ls(M_R, @view K_star[i, :])
         end
 
         # Fix M_G, optimize M_R
         for j in 1:n_R
-            M_R[j, :] .= solve_constrained_ls(M_G, K_star[:, j])
+            M_R[j, :] .= solve_constrained_ls(M_G, @view K_star[:, j])
         end
 
         # Check convergence
@@ -578,8 +578,8 @@ function verify_centroids(M_G::AbstractMatrix, M_R::AbstractMatrix, K_star::Abst
 
     all_positive_G = all(M_G .>= 0)
     all_positive_R = all(M_R .>= 0)
-    norms_G = [norm(M_G[i, :]) for i in 1:size(M_G, 1)]
-    norms_R = [norm(M_R[j, :]) for j in 1:size(M_R, 1)]
+    norms_G = vec(sqrt.(sum(abs2, M_G, dims=2)))
+    norms_R = vec(sqrt.(sum(abs2, M_R, dims=2)))
     all_in_ball_G = all(norms_G .<= 1.0 + 1e-10)
     all_in_ball_R = all(norms_R .<= 1.0 + 1e-10)
 
@@ -751,8 +751,8 @@ function sample_guild_graph(M_G::AbstractMatrix, M_R::AbstractMatrix,
 
     for i in 1:N
         g_idx = guild_assignments[i]
-        g_positions[i] = sample_guild_position(M_G[g_idx, :], κ; rng=rng)
-        r_positions[i] = sample_guild_position(M_R[g_idx, :], κ; rng=rng)
+        g_positions[i] = sample_guild_position(@view(M_G[g_idx, :]), κ; rng=rng)
+        r_positions[i] = sample_guild_position(@view(M_R[g_idx, :]), κ; rng=rng)
     end
 
     # Generate edges with probability gᵢ ⋅ rⱼ

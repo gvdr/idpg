@@ -50,8 +50,8 @@ function create_Bd_plus_grid(d::Int, resolution::Int)
         # Convert to coordinates in [0,1]^d
         coords = [(idx[i] - 1) * h for i in 1:d]
 
-        # Check if in B^d_+ (non-negative and ||x|| ≤ 1)
-        if all(c -> c >= 0, coords) && norm(coords) <= 1.0
+        # Check if in B^d_+ (coords are non-negative by construction; check ||x|| ≤ 1)
+        if all(>=(0), coords) && norm(coords) <= 1.0
             point = SVector{d, Float64}(coords)
 
             push!(points, point)
@@ -190,7 +190,7 @@ end
 """
 Create the RHS function for advection with space-dependent velocity field: ∂ρ/∂t = -v⃗(x) · ∇ρ
 """
-function make_advection_field_rhs(grid::BdPlusGrid{d}, v⃗_field::Function) where d
+function make_advection_field_rhs(grid::BdPlusGrid{d}, v⃗_field::F) where {d, F}
     function advection_field_rhs!(dρ, ρ, p, t)
         for i in eachindex(ρ)
             x = grid.points[i]
@@ -209,7 +209,7 @@ end
 """
 Create the RHS function for reaction-diffusion: ∂ρ/∂t = D∇²ρ + f(ρ)
 """
-function make_reaction_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64, f::Function) where d
+function make_reaction_diffusion_rhs(grid::BdPlusGrid{d}, D::Float64, f::F) where {d, F}
     function reaction_diffusion_rhs!(dρ, ρ, p, t)
         for i in eachindex(ρ)
             ∇²ρ = laplacian_stencil(grid, ρ, i)
@@ -335,7 +335,7 @@ end
 
 """
     evolve_advection_field(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
-                           v⃗_field::Function, tspan::Tuple;
+                           v⃗_field, tspan::Tuple;
                            solver=Tsit5(), saveat=nothing, kwargs...) -> ODESolution
 
 Evolve intensity via advection with space-dependent velocity: ∂ρ/∂t = -v⃗(x) · ∇ρ
@@ -343,7 +343,7 @@ Evolve intensity via advection with space-dependent velocity: ∂ρ/∂t = -v⃗
 # Arguments
 - `ρ₀`: Initial intensity values at grid points
 - `grid`: B^d_+ grid
-- `v⃗_field`: Function v⃗_field(x::AbstractVector) → velocity vector at point x
+- `v⃗_field`: Callable v⃗_field(x::AbstractVector) → velocity vector at point x
 - `tspan`: Time span as (t₀, t_final)
 
 # Example
@@ -355,10 +355,10 @@ sol = evolve_advection_field(ρ₀, grid, v⃗_toward, (0.0, 1.0))
 ```
 """
 function evolve_advection_field(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
-                                v⃗_field::Function, tspan::Tuple;
+                                v⃗_field::F, tspan::Tuple;
                                 solver=Tsit5(),
                                 saveat=nothing,
-                                kwargs...) where d
+                                kwargs...) where {d, F}
     rhs! = make_advection_field_rhs(grid, v⃗_field)
     prob = ODEProblem(rhs!, copy(ρ₀), tspan)
 
@@ -372,14 +372,14 @@ end
 
 """
     evolve_advection_field!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
-                            v⃗_field::Function, dt::Float64, n_steps::Int;
+                            v⃗_field, dt::Float64, n_steps::Int;
                             boundary::Symbol=:absorbing) -> Vector{Float64}
 
 Legacy in-place interface for backwards compatibility.
 """
 function evolve_advection_field!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
-                                  v⃗_field::Function, dt::Float64, n_steps::Int;
-                                  boundary::Symbol=:absorbing) where d
+                                  v⃗_field::F, dt::Float64, n_steps::Int;
+                                  boundary::Symbol=:absorbing) where {d, F}
     t_final = dt * n_steps
     sol = evolve_advection_field(ρ, grid, v⃗_field, (0.0, t_final))
     copyto!(ρ, max.(sol.u[end], 0.0))
@@ -388,7 +388,7 @@ end
 
 """
     evolve_reaction_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
-                              D::Float64, f::Function, tspan::Tuple;
+                              D::Float64, f, tspan::Tuple;
                               solver=Rodas5P(), saveat=nothing, kwargs...) -> ODESolution
 
 Evolve intensity via reaction-diffusion equation: ∂ρ/∂t = D∇²ρ + f(ρ)
@@ -397,7 +397,7 @@ Evolve intensity via reaction-diffusion equation: ∂ρ/∂t = D∇²ρ + f(ρ)
 - `ρ₀`: Initial intensity values at grid points
 - `grid`: B^d_+ grid
 - `D`: Diffusion coefficient
-- `f`: Reaction function f(ρ) → rate of change
+- `f`: Callable f(ρ) → rate of change
 - `tspan`: Time span as (t₀, t_final)
 - `solver`: ODE solver (default: Rodas5P for stiff reaction-diffusion)
 
@@ -409,10 +409,10 @@ sol = evolve_reaction_diffusion(ρ₀, grid, 0.01, f_logistic, (0.0, 10.0))
 ```
 """
 function evolve_reaction_diffusion(ρ₀::Vector{Float64}, grid::BdPlusGrid{d},
-                                   D::Float64, f::Function, tspan::Tuple;
+                                   D::Float64, f::F, tspan::Tuple;
                                    solver=Rodas5P(),
                                    saveat=nothing,
-                                   kwargs...) where d
+                                   kwargs...) where {d, F}
     rhs! = make_reaction_diffusion_rhs(grid, D, f)
     prob = ODEProblem(rhs!, copy(ρ₀), tspan)
 
@@ -426,14 +426,14 @@ end
 
 """
     evolve_reaction_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
-                               D::Float64, f::Function, dt::Float64, n_steps::Int;
+                               D::Float64, f, dt::Float64, n_steps::Int;
                                boundary::Symbol=:absorbing) -> Vector{Float64}
 
 Legacy in-place interface for backwards compatibility.
 """
 function evolve_reaction_diffusion!(ρ::Vector{Float64}, grid::BdPlusGrid{d},
-                                    D::Float64, f::Function, dt::Float64, n_steps::Int;
-                                    boundary::Symbol=:absorbing) where d
+                                    D::Float64, f::F, dt::Float64, n_steps::Int;
+                                    boundary::Symbol=:absorbing) where {d, F}
     t_final = dt * n_steps
     sol = evolve_reaction_diffusion(ρ, grid, D, f, (0.0, t_final))
     copyto!(ρ, max.(sol.u[end], 0.0))
@@ -445,7 +445,7 @@ end
 # =============================================================================
 
 """
-    evolve_and_track(ρ_initial::Function, grid::BdPlusGrid{d};
+    evolve_and_track(ρ_initial, grid::BdPlusGrid{d};
                      pde_type::Symbol=:diffusion,
                      D::Float64=0.01, v⃗=nothing, f=nothing,
                      t_final::Float64=1.0,
@@ -475,13 +475,13 @@ Named tuple with:
 - `mean_position`: Mean position over time
 - `solution`: The full ODE solution object
 """
-function evolve_and_track(ρ_initial::Function, grid::BdPlusGrid{d};
+function evolve_and_track(ρ_initial::F, grid::BdPlusGrid{d};
                           pde_type::Symbol=:diffusion,
                           D::Float64=0.01, v⃗=nothing, f=nothing,
                           t_final::Float64=1.0,
                           sample_times::AbstractVector=0.0:0.1:1.0,
                           solver=nothing,
-                          rng::AbstractRNG=Random.default_rng()) where d
+                          rng::AbstractRNG=Random.default_rng()) where {d, F}
 
     # Initialize
     ρ₀ = [ρ_initial(p) for p in grid.points]

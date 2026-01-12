@@ -213,8 +213,8 @@ function discretize_edge_centric(sample::EdgeCentricSample{d}, n_clusters::Int;
     end
 
     # Convert to matrices for clustering (Clustering.jl expects d×n)
-    source_matrix = hcat([Vector(s) for s in sample.sources]...)
-    target_matrix = hcat([Vector(t) for t in sample.targets]...)
+    source_matrix = reduce(hcat, sample.sources)
+    target_matrix = reduce(hcat, sample.targets)
 
     # Use Clustering.jl's k-means
     source_result = kmeans(source_matrix, n_clusters; maxiter=max_iter)
@@ -339,8 +339,8 @@ function discretize_with_weights(sample::EdgeCentricSample{d}, n_clusters::Int;
     end
 
     # Convert to matrices for clustering (Clustering.jl expects d×n)
-    source_matrix = hcat([Vector(s) for s in sample.sources]...)
-    target_matrix = hcat([Vector(t) for t in sample.targets]...)
+    source_matrix = reduce(hcat, sample.sources)
+    target_matrix = reduce(hcat, sample.targets)
 
     # Use Clustering.jl's k-means
     source_result = kmeans(source_matrix, n_clusters; maxiter=100)

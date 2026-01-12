@@ -27,8 +27,9 @@ Used for thinning algorithm.
 function estimate_max_intensity(ρ::AbstractIntensity{d};
                                 n_samples::Int=1000,
                                 rng::AbstractRNG=Random.default_rng()) where d
+    valdim = Val{d}()
     max_val = maximum(
-        ρ(uniform_Bd_plus_sample(d; rng=rng), uniform_Bd_plus_sample(d; rng=rng))
+        ρ(uniform_Bd_plus_sample(valdim; rng=rng), uniform_Bd_plus_sample(valdim; rng=rng))
         for _ in 1:n_samples
     )
     # Add safety margin
@@ -44,11 +45,12 @@ function estimate_max_intensity(ρ::ProductIntensity{d};
                                 n_samples::Int=1000,
                                 rng::AbstractRNG=Random.default_rng()) where d
     # For product intensity, max is max_G * max_R
+    valdim = Val{d}()
     max_G = 0.0
     max_R = 0.0
     for _ in 1:n_samples
-        g = uniform_Bd_plus_sample(d; rng=rng)
-        r = uniform_Bd_plus_sample(d; rng=rng)
+        g = uniform_Bd_plus_sample(valdim; rng=rng)
+        r = uniform_Bd_plus_sample(valdim; rng=rng)
         max_G = max(max_G, ρ.ρ_G(g))
         max_R = max(max_R, ρ.ρ_R(r))
     end
@@ -91,11 +93,12 @@ function sample_ppp(ρ::AbstractIntensity{d}, λ_max::Float64;
     n_candidates = rand(rng, Poisson(λ_max * vol_Ω))
 
     # Sample candidates uniformly and thin
+    valdim = Val{d}()
     accepted = InteractionSite{d}[]
 
     for _ in 1:n_candidates
-        g = uniform_Bd_plus_sample(d; rng=rng)
-        r = uniform_Bd_plus_sample(d; rng=rng)
+        g = uniform_Bd_plus_sample(valdim; rng=rng)
+        r = uniform_Bd_plus_sample(valdim; rng=rng)
 
         # Accept with probability ρ(g,r) / λ_max
         if rand(rng) < ρ(g, r) / λ_max
@@ -234,9 +237,13 @@ function sample_from_grid(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Floa
     # Compute volume element
     h_d = grid.h^d
 
+    # Compute sums once, reuse for both total intensity and normalization
+    sum_G = sum(ρ_G_values)
+    sum_R = sum(ρ_R_values)
+
     # Compute total intensities (approximate integrals)
-    c_G = sum(ρ_G_values) * h_d
-    c_R = sum(ρ_R_values) * h_d
+    c_G = sum_G * h_d
+    c_R = sum_R * h_d
 
     # Expected number of node-equivalents
     E_N = c_G * c_R
@@ -255,8 +262,8 @@ function sample_from_grid(ρ_G_values::Vector{Float64}, ρ_R_values::Vector{Floa
     end
 
     # Normalize to get probability distributions over grid points
-    p_G = ρ_G_values ./ sum(ρ_G_values)
-    p_R = ρ_R_values ./ sum(ρ_R_values)
+    p_G = ρ_G_values ./ sum_G
+    p_R = ρ_R_values ./ sum_R
 
     # Sample interactions
     sources = LatentPoint{d}[]
@@ -315,9 +322,13 @@ function sample_from_grid_full(ρ_G_values::Vector{Float64}, ρ_R_values::Vector
     # Compute volume element
     h_d = grid.h^d
 
+    # Compute sums once, reuse for both total intensity and normalization
+    sum_G = sum(ρ_G_values)
+    sum_R = sum(ρ_R_values)
+
     # Compute total intensities
-    c_G = sum(ρ_G_values) * h_d
-    c_R = sum(ρ_R_values) * h_d
+    c_G = sum_G * h_d
+    c_R = sum_R * h_d
 
     # Expected number of node-equivalents
     E_N = c_G * c_R
@@ -335,8 +346,8 @@ function sample_from_grid_full(ρ_G_values::Vector{Float64}, ρ_R_values::Vector
     end
 
     # Normalize to probability distributions
-    p_G = ρ_G_values ./ sum(ρ_G_values)
-    p_R = ρ_R_values ./ sum(ρ_R_values)
+    p_G = ρ_G_values ./ sum_G
+    p_R = ρ_R_values ./ sum_R
 
     source_sites = InteractionSite{d}[]
     target_sites = InteractionSite{d}[]
@@ -390,7 +401,7 @@ function initialize_grid_from_mixture(grid::BdPlusGrid{d}, weights, means, κ_va
 
     ρ_values = [
         scale * sum(
-            weights[k] * exp(-κ_vals[k] * sum((Vector(point) .- means[k]).^2) / 2)
+            weights[k] * exp(-κ_vals[k] * sum((point .- means[k]).^2) / 2)
             for k in 1:n_components
         )
         for point in grid.points

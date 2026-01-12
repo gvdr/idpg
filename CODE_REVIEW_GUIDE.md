@@ -23,7 +23,7 @@ This document provides a structured guide for reviewing the IDPG (Intensity Dot 
 idpg/
 ├── src/                      # Core library
 │   ├── IDPG.jl              # Main module (imports, includes, exports)
-│   └── modules/             # 8 implementation files
+│   └── modules/             # 7 implementation files
 ├── scripts/
 │   ├── scaling_laws/        # Validation simulations (fig1, fig2, fig6)
 │   └── heat_maps/           # Paper figure generation (A-E)
@@ -59,8 +59,6 @@ IDPG.jl
 │
 ├── PDEEvolution.jl      [depends on: LatentSpace]
 │
-├── PDESciML.jl          [depends on: PDEEvolution]
-│
 ├── Sampling.jl          [depends on: LatentSpace, Intensity, PDEEvolution]
 │
 ├── GraphGeneration.jl   [depends on: LatentSpace, Sampling]
@@ -79,7 +77,6 @@ IDPG.jl
 | LatentSpace | StaticArrays, LinearAlgebra |
 | Intensity | Distributions, StatsBase |
 | PDEEvolution | LinearAlgebra |
-| PDESciML | ModelingToolkit, MethodOfLines, OrdinaryDiffEq, DomainSets |
 | Sampling | Distributions, Random |
 | GraphGeneration | Graphs, Clustering |
 | Visualization | CairoMakie, GraphMakie |
@@ -255,10 +252,13 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 | `on_Bd_plus_boundary(x)` | Check if on boundary |
 | `project_to_Bd_plus(x)` | Project onto B^d_+ |
 | `Bd_plus_volume(d)` | Volume: pi^(d/2) / (Gamma(d/2+1) * 2^d) |
-| `uniform_Bd_plus_sample(d)` | Sample uniformly |
+| `uniform_Bd_plus_sample(d)` | Sample uniformly (type-unstable) |
+| `uniform_Bd_plus_sample(Val(d))` | Sample uniformly (type-stable) |
 | `connection_probability(g, r)` | Compute g . r |
-| `hyperspherical_to_cartesian` | Coordinate transform |
-| `cartesian_to_hyperspherical` | Coordinate transform |
+| `hyperspherical_to_cartesian(r, angles)` | Coordinate transform (type-unstable) |
+| `hyperspherical_to_cartesian(Val(d), r, angles)` | Coordinate transform (type-stable) |
+| `cartesian_to_hyperspherical` | Inverse coordinate transform |
+| `hyperspherical_jacobian(r, angles)` | Jacobian for volume integration |
 
 ---
 
@@ -337,34 +337,7 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 
 ---
 
-### 4. PDESciML.jl
-
-**Purpose**: SciML-based PDE solver using MethodOfLines.
-
-**Depends on**: PDEEvolution, ModelingToolkit, MethodOfLines, OrdinaryDiffEq
-
-**Note**: PDE systems created lazily (when called), not at module load.
-
-**Key Exports**:
-
-*Masking*:
-| Function | Purpose |
-|----------|---------|
-| `create_Bd_plus_mask_2d(nx, ny)` | BitArray mask for 2D |
-| `create_Bd_plus_mask_4d(...)` | BitArray mask for 4D |
-| `apply_Bd_plus_mask!(u, mask)` | Enforce domain constraint |
-
-*Solvers*:
-| Function | Dimension |
-|----------|-----------|
-| `solve_diffusion_mol_2d(u0, D, tspan)` | 2D diffusion |
-| `solve_advection_mol_2d(u0, v, tspan)` | 2D advection |
-| `solve_diffusion_mol_4d(u0, D, tspan)` | 4D diffusion |
-| `solve_advection_mol_4d(u0, v, tspan)` | 4D advection |
-
----
-
-### 5. Sampling.jl
+### 4. Sampling.jl
 
 **Purpose**: Sample sites from Poisson point process.
 
@@ -401,7 +374,7 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 
 ---
 
-### 6. GraphGeneration.jl
+### 5. GraphGeneration.jl
 
 **Purpose**: Generate graphs from sampled sites.
 
@@ -438,7 +411,7 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 
 ---
 
-### 7. Visualization.jl
+### 6. Visualization.jl
 
 **Purpose**: Plotting and animation.
 
@@ -460,7 +433,7 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 
 ---
 
-### 8. EcologicalUtils.jl
+### 7. EcologicalUtils.jl
 
 **Purpose**: Guild structure and food web utilities.
 
@@ -546,7 +519,7 @@ Run: `julia --project=. -e 'using Pkg; Pkg.test()'`
 | `test_sampling.jl` | PPP sampling, thinning, max intensity |
 | `test_formulas.jl` | E[N], E[|E|], E[L] validation |
 | `test_graph_generation.jl` | Node/edge-centric, discretization |
-| `test_pde.jl` | Finite difference solver |
+| `test_pde.jl` | PDE solver (OrdinaryDiffEq) |
 
 ---
 
@@ -580,6 +553,17 @@ Run: `julia --project=. -e 'using Pkg; Pkg.test()'`
 ---
 
 ## Changelog
+
+### 2026-01-12
+
+- Archived PDESciML.jl (MethodOfLines-based) to `archive/deprecated_pde/`
+- Type stability improvements: added `Val{d}` overloads for hot-path functions
+  - `uniform_Bd_plus_sample(Val(d))` - type-stable sampling
+  - `hyperspherical_to_cartesian(Val(d), r, angles)` - type-stable conversion
+- Julia Performance Tips compliance: typed empty arrays, `@view` for slices
+- SciML Style Guide compliance: `eachindex` iteration, type parameters
+- Verified hyperspherical Jacobian against Wikipedia N-sphere formulas
+- Removed refactoring artifacts: `docs/pde_refactoring_2026.md`, `refactor_verification/`
 
 ### 2025-01-09
 
