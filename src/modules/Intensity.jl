@@ -303,6 +303,145 @@ function normalized_mean(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
 end
 
 """
+    second_moment_matrix(ρ::BdPlusMixture; reltol=1e-4) -> SMatrix{d,d}
+
+Compute the second moment matrix (non-centered covariance) of the normalized intensity:
+    Σ_{jk} = E[x_j x_k] = ∫ x_j x_k ρ̃(x) dx
+
+where ρ̃ = ρ/c is the normalized intensity (probability density).
+
+This is used for computing the singular values of the Desire operator:
+    σ_k(D̃) = √(λ_k(Σ_G Σ_R))
+
+# Arguments
+- `ρ`: Intensity function (BdPlusMixture)
+- `reltol`: Relative tolerance for quadrature
+
+# Returns
+A d×d SMatrix containing the second moments.
+"""
+function second_moment_matrix(ρ::BdPlusMixture{d}; reltol::Float64=1e-4) where d
+    c = total_intensity(ρ; reltol=reltol)
+
+    # 1D case: direct integration
+    if d == 1
+        f1d(x, p) = x^2 * ρ([x])
+        prob = IntegralProblem(f1d, (0.0, 1.0))
+        sol = solve(prob, HCubatureJL(); reltol=reltol)
+        return SMatrix{1, 1, Float64}(sol.u / c)
+    end
+
+    # d ≥ 2: use hyperspherical coordinates
+    valdim = Val{d}()
+    Σ = zeros(d, d)
+    solver = _select_quadrature_solver(d)
+
+    for j in 1:d
+        for k in j:d  # Only compute upper triangle (symmetric)
+            function integrand_Σjk(u, p)
+                r = u[1]
+                r < 1e-12 && return 0.0
+                θ = @view u[2:end]
+                x = hyperspherical_to_cartesian(valdim, r, θ)
+                J = hyperspherical_jacobian(r, θ)
+                return x[j] * x[k] * ρ(x) * J
+            end
+
+            lower = zeros(d)
+            upper = vcat(1.0, fill(π/2, d-1))
+            prob = IntegralProblem(integrand_Σjk, (lower, upper))
+
+            if d <= 4
+                sol = solve(prob, solver; reltol=reltol)
+            else
+                sol = solve(prob, solver)
+            end
+
+            Σ[j, k] = sol.u / c
+            if j != k
+                Σ[k, j] = Σ[j, k]  # Symmetric
+            end
+        end
+    end
+
+    return SMatrix{d, d, Float64}(Σ)
+end
+
+"""
+    desire_operator_singular_values(ρ::ProductIntensity; reltol=1e-4) -> Vector{Float64}
+
+Compute the singular values of the Desire operator D̃.
+
+The Desire operator D̃: L²(B^d_+, ρ̃_R) → L²(B^d_+, ρ̃_G) is defined by:
+    (D̃ f)(g) = ∫ (g · r) f(r) ρ̃_R(r) dr
+
+The singular values are:
+    σ_k(D̃) = √(λ_k(Σ_G Σ_R))
+
+where Σ_G and Σ_R are the second moment matrices of the normalized marginals.
+
+# Arguments
+- `ρ`: ProductIntensity with BdPlusMixture marginals
+- `reltol`: Relative tolerance for quadrature
+
+# Returns
+Vector of d singular values in decreasing order.
+"""
+function desire_operator_singular_values(ρ::ProductIntensity{d}; reltol::Float64=1e-4) where d
+    Σ_G = second_moment_matrix(ρ.ρ_G; reltol=reltol)
+    Σ_R = second_moment_matrix(ρ.ρ_R; reltol=reltol)
+
+    # Eigenvalues of Σ_G * Σ_R
+    # Note: this product is not symmetric, but has real non-negative eigenvalues
+    # (it's similar to the symmetric positive semi-definite Σ_G^{1/2} Σ_R Σ_G^{1/2})
+    # Convert to Array because StaticArrays only supports eigvals for Hermitian matrices
+    M = Array(Σ_G * Σ_R)
+    λ = eigvals(M)
+
+    # Eigenvalues should be real and non-negative (up to numerical error)
+    λ_real = real.(λ)
+    λ_real = max.(λ_real, 0.0)  # Clamp small negative values from numerical error
+
+    # Return sqrt of eigenvalues, sorted in decreasing order
+    σ = sqrt.(λ_real)
+    return sort(σ, rev=true)
+end
+
+"""
+    desire_stats(ρ::ProductIntensity; reltol=1e-4)
+
+Compute Desire operator statistics for a ProductIntensity.
+
+Returns a named tuple with:
+- Σ_G, Σ_R: Second moment matrices
+- singular_values: σ_k(D̃) = √(λ_k(Σ_G Σ_R))
+- μ̃_G, μ̃_R: Normalized means (for reference)
+- c_G, c_R: Total intensities
+"""
+function desire_stats(ρ::ProductIntensity{d}; reltol::Float64=1e-4) where d
+    c_G = total_intensity(ρ.ρ_G; reltol=reltol)
+    c_R = total_intensity(ρ.ρ_R; reltol=reltol)
+
+    μ_G = intensity_weighted_mean(ρ.ρ_G; reltol=reltol)
+    μ_R = intensity_weighted_mean(ρ.ρ_R; reltol=reltol)
+
+    Σ_G = second_moment_matrix(ρ.ρ_G; reltol=reltol)
+    Σ_R = second_moment_matrix(ρ.ρ_R; reltol=reltol)
+
+    σ = desire_operator_singular_values(ρ; reltol=reltol)
+
+    return (
+        c_G = c_G,
+        c_R = c_R,
+        μ̃_G = μ_G ./ c_G,
+        μ̃_R = μ_R ./ c_R,
+        Σ_G = Σ_G,
+        Σ_R = Σ_R,
+        singular_values = σ
+    )
+end
+
+"""
     marginal_stats(ρ::ProductIntensity; reltol=1e-4)
 
 Compute all marginal statistics for a product intensity:

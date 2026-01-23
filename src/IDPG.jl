@@ -42,6 +42,9 @@ export marginal_total_intensity, intensity_weighted_mean, normalized_mean
 export n_species, species_intensities, species_probabilities
 export create_calibrated_product_intensity
 
+# Desire operator (spectral structure)
+export second_moment_matrix, desire_operator_singular_values, desire_stats
+
 # 1D intensity utilities
 export truncated_gaussian_sigma, truncated_gaussian_kappa
 export compute_1d_marginals, compute_bound_heat_matrix
