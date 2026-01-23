@@ -302,14 +302,14 @@ function plot_figure(data)
         Legend(fig[1, 4], ax_b)
 
         # ===== Panel (c): Variance vs m (multiple graphs) =====
+        ms = sort(collect(keys(mg_data)))
         ax_c = Axis(fig[1, 5],
             xlabel = L"Number of graphs $m$",
             ylabel = L"Std of $\bar{\sigma}_k$",
             title = L"(c) Multi-graph variance ($\Lambda = %$(Int(λ_fixed))$): $O(1/\sqrt{m})$",
             xscale = log10,
-            yscale = log10)
-
-        ms = sort(collect(keys(mg_data)))
+            yscale = log10,
+            xticks = (ms, string.(ms)))
 
         for k in 1:2  # Only σ₁ and σ₂ (others are noise-dominated)
             stds = [mg_data[m].std_σ[k] for m in ms]
