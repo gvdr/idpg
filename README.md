@@ -42,7 +42,8 @@ idpg/
 │       └── EcologicalUtils.jl
 ├── scripts/
 │   ├── scaling_laws/        # Validation simulations (Figures 1, 2, 6)
-│   └── heat_maps/           # Paper figure generation (Figures A-E)
+│   ├── heat_maps/           # Paper figure generation (Figures A-E)
+│   └── desire_validation/   # Desire operator spectral validation
 ├── test/                    # Unit tests
 ├── docs/                    # Documentation and manuscript
 └── output/                  # Generated figures and data
@@ -79,6 +80,22 @@ julia --project=. scripts/heat_maps/figure_A_anatomy.jl --plot
 - **Mixture of products**: Sum of species-specific products for ecological modeling with guild structure.
 
 - **Temporal dynamics**: The intensity can evolve according to PDEs (diffusion, advection), inducing time-varying graph distributions.
+
+- **Desire operator**: The integral operator D̃: L²(B^d_+, ρ̃_R) → L²(B^d_+, ρ̃_G) with kernel (g · r). Its singular values σ_k(D̃) = √(λ_k(Σ_G Σ_R)) determine the spectral structure of sampled graphs: σ_k(A)/N → σ_k(D̃) as N → ∞.
+
+## Running Desire Operator Validation
+
+```bash
+# Generate spectral consistency figure
+julia --project=. scripts/desire_validation/figure_desire_spectral.jl
+
+# Run text-based validation
+julia --project=. scripts/desire_validation/validate_desire_spectral.jl
+```
+
+Output in `output/desire_validation/`:
+- `figure_desire_spectral.png/pdf` - 3-panel validation figure
+- `figure_desire_spectral_notes.md` - Detailed notes for manuscript
 
 ## Documentation
 

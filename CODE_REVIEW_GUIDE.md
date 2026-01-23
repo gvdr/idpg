@@ -291,6 +291,13 @@ Each edge opportunity "consumes" 2 node-equivalents (1 source + 1 target):
 | `normalized_mean(rho)` | mu_tilde = mu / c |
 | `marginal_stats(rho)` | Full tuple: (c_G, c_R, mu_G, mu_R, E_N, E_edges_node, E_edges_edge, avg_conn_prob) |
 
+*Desire Operator (spectral structure)*:
+| Function | Returns |
+|----------|---------|
+| `second_moment_matrix(rho)` | Σ where Σ_{jk} = E[x_j x_k] under normalized intensity |
+| `desire_operator_singular_values(rho)` | σ_k(D̃) = √(λ_k(Σ_G Σ_R)), sorted descending |
+| `desire_stats(rho)` | Named tuple: (Σ_G, Σ_R, σ, μ̃_G, μ̃_R) |
+
 *Construction*:
 | Function | Purpose |
 |----------|---------|
@@ -499,6 +506,20 @@ Generate paper figures.
 | `figure_D_foodweb_static.jl` | Static food web |
 | `figure_E_foodweb_dynamic.jl` | Dynamic food web |
 
+### Desire Validation (`scripts/desire_validation/`)
+
+Validate the Desire operator spectral consistency theorem: σ_k(A)/N → σ_k(D̃) as N → ∞.
+
+| Script | Purpose | Key Result |
+|--------|---------|------------|
+| `figure_desire_spectral.jl` | Spectral consistency validation | 3-panel figure: convergence, bias O(1/√Λ), variance O(1/√m) |
+| `validate_desire_spectral.jl` | Text-based validation tests | Console output verification |
+
+**Output files** (`output/desire_validation/`):
+- `figure_desire_spectral.png/pdf` - Main validation figure
+- `figure_desire_spectral_notes.md` - Detailed notes for manuscript integration
+- `desire_spectral_data.jld2` - Cached computation results
+
 **Script pattern**:
 ```julia
 function compute_figure_X_data()  # Compute and save
@@ -534,6 +555,9 @@ Run: `julia --project=. -e 'using Pkg; Pkg.test()'`
 - [ ] Product intensity: rho(g, r) = rho_G(g) * rho_R(r)
 - [ ] Charges: c_G = integral rho_G, c_R = integral rho_R, Lambda = c_G * c_R
 - [ ] Centroids: mu_tilde = (integral x * rho(x)) / c
+- [ ] Second moment: Sigma_{jk} = E[x_j x_k] under normalized intensity
+- [ ] Desire singular values: sigma_k(D̃) = sqrt(lambda_k(Sigma_G * Sigma_R))
+- [ ] Spectral consistency: sigma_k(A)/N → sigma_k(D̃) as N → infinity
 
 ### Code Quality
 
@@ -553,6 +577,21 @@ Run: `julia --project=. -e 'using Pkg; Pkg.test()'`
 ---
 
 ## Changelog
+
+### 2026-01-23
+
+- **Desire Operator Spectral Validation**: New functions and validation scripts
+  - Added `second_moment_matrix(rho)` - computes E[x_j x_k] under normalized intensity
+  - Added `desire_operator_singular_values(rho)` - computes σ_k(D̃) = √(λ_k(Σ_G Σ_R))
+  - Added `desire_stats(rho)` - convenience wrapper returning (Σ_G, Σ_R, σ, μ̃_G, μ̃_R)
+  - New exports in IDPG.jl: `second_moment_matrix`, `desire_operator_singular_values`, `desire_stats`
+- New validation scripts in `scripts/desire_validation/`:
+  - `figure_desire_spectral.jl` - generates 3-panel validation figure
+  - `validate_desire_spectral.jl` - text-based validation tests
+- Validates spectral consistency theorem: σ_k(A)/N → σ_k(D̃) as Λ → ∞
+  - Panel (a): Single graph convergence
+  - Panel (b): Bias scaling O(1/√Λ)
+  - Panel (c): Multi-graph variance reduction O(1/√m)
 
 ### 2026-01-12
 
